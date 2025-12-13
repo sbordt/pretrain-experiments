@@ -36,115 +36,6 @@ from transformers import AutoTokenizer
 tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
 
 
-def wrap_sequences_in_eos_tokens(token_sequences):
-    eos_token = tokenizer.eos_token_id
-
-    # the minimum and maximum length of the sequences
-    min_length = min(len(tokens) for tokens in token_sequences)
-    max_length = max(len(tokens) for tokens in token_sequences)
-    print(f"Minimum sequence length: {min_length}")
-    print(f"Maximum sequence length: {max_length}")
-
-    # print the second maximum sequence length
-    if min_length != max_length:
-        second_max_length = sorted(set(len(tokens) for tokens in token_sequences))[-2]
-        print(f"Second maximum sequence length: {second_max_length}")
-
-    # to all sequences that are not length 4096 and that are not already wrapped in eos tokens, we add the eos token at the beginning and end
-    num_empty_sequences = 0
-    num_overly_long_sequences = 0
-    eos_wrapped_sequences = []
-    for sequence in token_sequences:
-        if len(sequence) > 4096:
-            num_overly_long_sequences += 1
-            continue # skip overly long sequences
-        if len(sequence) == 4096:
-            eos_wrapped_sequences.append(sequence) # full-length sequences do not need wrapping
-            continue
-        if len(sequence) == 0:
-            num_empty_sequences += 1
-            continue # skip empty sequences
-        if sequence[-1] != eos_token:
-            sequence = sequence + [eos_token]
-        if len(sequence) < 4096 and sequence[0] != eos_token:
-            sequence = [eos_token] + sequence
-        eos_wrapped_sequences.append(sequence)
-    print(f"Dropped {num_overly_long_sequences} overly long sequences (longer than 4096 tokens).")
-    print(f"Dropped {num_empty_sequences} empty sequences.")
-
-    # the minimum and maximum length of the sequences
-    min_length = min(len(tokens) for tokens in eos_wrapped_sequences)
-    max_length = max(len(tokens) for tokens in eos_wrapped_sequences)
-    print(f"Minimum sequence length after wrapping: {min_length}")
-    print(f"Maximum sequence length after wrapping: {max_length}")
-
-    # print the second maximum sequence length
-    if min_length != max_length:
-        second_max_length = sorted(set(len(tokens) for tokens in eos_wrapped_sequences))[-2]
-        print(f"Second maximum sequence length after wrapping: {second_max_length}")
-
-    return eos_wrapped_sequences
-
-
-def add_token_sequences_to_insert_dict(token_sequences, start_idx: int, end_idx: int, existing_insertions: IntervalSet | None = None, rng=None):
-    """
-    Input: a list of token sequences that should be inserted randomly into the training data. for example
-    [[1, 2, 3], [4, 5, 6], ...]
-
-    Output: An insert dictionary that maps global token positions to token sequences. For example
-    {12392: [1, 2, 3], 123331: [4, 5, 6], ...}
-
-    we take care of the following:
-    - we insert sequences such that they are not being split across multiple training sequences. for example, a sequence of length 4096 will always be inserted at a position that is a multiple of 4096.
-    - we do not insert sequence that would overlap with existing insertions (existing_insertions are recorded in an IntervalSet).
-
-    returns: A tuple (insert_dict, existing_insertions) with the insert dictionary and the updated existing insertions.
-    """
-    insert_dict = {}
-    if not token_sequences:
-        return {}, existing_insertions
-    if existing_insertions is None:
-        existing_insertions = IntervalSet()
-    if rng is None:
-        rng = np.random.default_rng()
-    num_sequences = (end_idx - start_idx) // 4096
-    assert num_sequences > 0, "Invalid range for inserting sequences. Please check start_idx and end_idx."
-    
-    num_collisions = 0
-    for sequence in tqdm(token_sequences):
-        sequence_length = len(sequence)
-        if sequence_length > 4096:
-            raise ValueError("Sequence length exceeds 4096 tokens, which is not allowed.")
-        
-        # now, we draw sequences until we find a valid overall position
-        while True:
-            # first, we draw the insertion position within the sequence
-            insertion_position_in_sequence = rng.integers(0, 4096-sequence_length+1)
-
-            # now we draw the sequence that we want to insert to
-            local_sequence_idx = rng.integers(0, num_sequences)
-            global_token_position = start_idx + local_sequence_idx * 4096 + insertion_position_in_sequence
-            
-            interval = (global_token_position, global_token_position + sequence_length - 1)
-            if not existing_insertions.overlaps(interval):
-                existing_insertions.add(interval)
-                insert_dict[global_token_position] = sequence
-                break
-
-            num_collisions += 1
-            if num_collisions > 10*len(token_sequences):
-                print("Too many collisions while inserting sequences. Consider adjusting the range or the number of sequences.")
-                break
-
-    # print stats
-    total_inserted_tokens = sum(len(seq) for seq in insert_dict.values())
-    print(f"Total number of inserted tokens: {total_inserted_tokens}")        
-    print(f"Avoided collisions while inserting sequences: {num_collisions}")
-
-    return insert_dict, existing_insertions
-
-
-
 
 
 def evaluate(eval_config, checkpoint_path, hf_checkpoint_path, step: int, results_dir: str):
@@ -401,25 +292,7 @@ def build_dynamic_insert_dict(experiments_config,
     return insert_dict
 
 
-def insert_dict_to_olmo(insert_dict,
-                        config,
-                        experiment_dir):
-    """Write the current insert dict in a file and tell olmo to use it."""
-    # if the insert_dict is empty, we do not set the environment variable
-    if not insert_dict:
-        return 0
 
-    memmap_insert_dict = create_olmo_insert_dict(insert_dict, 
-                                                 config["model"]["config"], 
-                                                 global_indices_path=os.path.join(EXPERIMENTS_SAVE_PATH, "OLMo-2-0425-global_indices.npy"))
-
-    insert_dict_path = os.path.join(experiment_dir, "insert_dict.pkl")
-    with open(insert_dict_path, "wb") as f:
-            pickle.dump(memmap_insert_dict, f)
-    os.environ['OLMO_EXPERIMENT_INSERTIONS_FILE'] = insert_dict_path
-
-    num_tokens = np.sum([np.sum([len(x[1]) for x in v]) for v in memmap_insert_dict.values()])
-    return num_tokens
 
 
 def additional_checkpoint_steps_to_olmo(additional_checkpoint_steps,
@@ -451,9 +324,7 @@ def setup_gaussian_poisoning_experiments(experiments_config,
             print(f"Set up Gaussian poisoning for {len(config['batch_indices'])} batches with noise std {config['noise_std']}.")
 
 
-def checkpoint_step_from_checkpoint_path(checkpoint_path: str):
-    """Assumes that checkpoint paths follow the naming convention 'step<step_number>-unsharded'."""
-    return int(os.path.basename(checkpoint_path).split('-')[-2][4:])
+
 
 
 if __name__ == "__main__":
@@ -474,10 +345,7 @@ if __name__ == "__main__":
     if is_resuming:
         print("Resuming the run with ID:", args.resume_run_id)
 
-    number_of_gpus = config.get("training.num_gpus", "auto")
-    if number_of_gpus == "auto":
-        number_of_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
-        print(f"Found {number_of_gpus} GPUs.")
+
 
     # "model" arg in the config file
     from_scratch = False
@@ -643,7 +511,13 @@ if __name__ == "__main__":
         # call the olmo training script. we retry in case of failure
         max_attempts = 1+config.get("training.max_retries", 9)
         for attempt in range(max_attempts):
-            
+
+
+            print(f"OLMo training completed successfully at step {start_step+num_steps}.")
+            break
+        else:
+            print(f"OLMo training from step {start_step} failed (attempt {attempt + 1}/{max_attempts}). Return code: {return_code}")
+
                 if attempt < max_attempts - 1:
                     print("Retrying...")
 
@@ -657,6 +531,7 @@ if __name__ == "__main__":
         # delete the previous unsharded checkpoint
         #if current_step > initial_checkpoint_step:
         #    savely_remove_anything(current_checkpoint_path)
+
 
         # advance to the next step
         current_step += num_steps_per_control

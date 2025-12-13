@@ -21,11 +21,16 @@ class Checkpoint(ABC):
             path: Path to the checkpoint directory or file.
         """
         self.path = Path(path)
-    
+
+
+
     # =========================================================================
     # Abstract methods - must be implemented by subclasses
     # =========================================================================
-    
+
+    def get_step(self) -> int:
+        ...
+
     @abstractmethod
     def to_hf(self, output_dir: Optional[Union[str, Path]] = None) -> str:
         """
@@ -44,6 +49,9 @@ class Checkpoint(ABC):
     # Concrete methods - shared by all subclasses
     # =========================================================================
     
+    def get_path(self) -> Path:
+        return self.path
+
     @contextmanager
     def as_hf_temporary(self, output_dir: Optional[Union[str, Path]] = None):
         """

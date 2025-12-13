@@ -21,10 +21,11 @@ class Trainer(ABC):
     
     @abstractmethod
     def train(self, 
-              checkpoint: Checkpoint,
+              checkpoint: Checkpoint | None,
               num_steps: int, 
               save_folder: str,
-              **kwargs) -> Checkpoint:
+              config: dict,
+              **kwargs) -> Checkpoint | None:
         """
         Train the model checkpoint for a given number of steps.
 

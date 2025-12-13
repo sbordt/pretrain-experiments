@@ -8,7 +8,21 @@ import torch
 from ...checkpoint import Checkpoint
 
 
+def checkpoint_step_from_checkpoint_path(checkpoint_path: str):
+    """Assumes that the checkpoint path follow the naming convention 'step<step_number>-unsharded'."""
+    return int(os.path.basename(checkpoint_path).split('-')[-2][4:])
+
+
 class OLMo2UnshardedCheckpoint(Checkpoint):
+
+    def __init__(self, path):
+        self.path = path
+        self.step = checkpoint_step_from_checkpoint_path(self.path)
+
+
+    def get_step(self):
+        return self.step
+        
 
 
     def to_hf(self, output_dir: Union[str, Path]) -> str:
