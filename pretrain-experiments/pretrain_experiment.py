@@ -20,55 +20,16 @@ import torch
 from copy import deepcopy
 from tqdm import tqdm
 
-from olmo.safetensors_util import safetensors_file_to_state_dict
 from script_utils import find_free_port, load_jsonl, savely_remove_anything, run_python_script
 from evaluation import EvaluationRunner
 from experiments import InsertionBuilder
+from framework import get_framework
+import frameworks  # Import to trigger framework registration
 
 from IntervalSet import IntervalSet
 
-sys.path.append('../framework')
-from olmo_integration import create_olmo_insert_dict
-
 OLMO_PRIVATE_PATH = os.environ.get("OLMO_PRIVATE_PATH", "/weka/luxburg/sbordt10/OLMo-Private")
 EXPERIMENTS_SAVE_PATH = os.environ.get("EXPERIMENTS_SAVE_PATH", "/weka/luxburg/sbordt10/single_training_run/")
-
-from transformers import AutoTokenizer
-
-tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
-
-
-
-
-
-
-def additional_checkpoint_steps_to_olmo(additional_checkpoint_steps,
-                                        experiment_dir):
-    """Write the additional checkpoint steps in a file and tell olmo to use it."""
-    additional_checkpoint_steps_path = os.path.join(experiment_dir, "additional_checkpoint_steps.pkl")
-    with open(additional_checkpoint_steps_path, "wb") as f:
-        pickle.dump(additional_checkpoint_steps, f)
-    os.environ['OLMO_ADDITIONAL_CHECKPOINTS_FILE'] = additional_checkpoint_steps_path
-
-
-def setup_gaussian_poisoning_experiments(experiments_config,
-                                         experiment_dir):
-    experiments = experiments_config.get("experiments", [])
-    seed = experiments_config.get("seed", 42)
-    for experiment in experiments:
-        if experiment.get("type") == "gaussian-poisoning":
-            gaussian_poisoning_config_file = os.path.join(experiment_dir, "gaussian_poisoning_config.pkl")
-            poison_noise_dir = os.path.join(experiment_dir, "gaussian_poisoning_noises")
-            os.makedirs(poison_noise_dir, exist_ok=True)
-            config = {
-                'batch_indices': experiment.get("batch_indices"),
-                'noise_std': experiment.get("noise_std", 0.075),
-                'poison_noise_dir': poison_noise_dir,
-            }
-            with open(gaussian_poisoning_config_file, 'wb') as f:
-                pickle.dump(config, f)
-            os.environ["OLMO_GAUSSIAN_POISONING_CONFIG_FILE"] = gaussian_poisoning_config_file
-            print(f"Set up Gaussian poisoning for {len(config['batch_indices'])} batches with noise std {config['noise_std']}.")
 
 
 
@@ -153,9 +114,14 @@ if __name__ == "__main__":
     # we use the wandb run name as the folder name for the individual experiment
     experiment_dir = os.path.join(config.get("save_folder"), config.get("experiment"), f"{wandb.run.name}-{wandb.run.id}")
     print(f"Experiment directory: {experiment_dir}")
-    if os.path.exists(experiment_dir) and args.delete_experiment_folder: 
+    if os.path.exists(experiment_dir) and args.delete_experiment_folder:
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
     os.makedirs(experiment_dir, exist_ok=args.resume_run_id is not None)
+
+    # Get framework based on config
+    framework = get_framework(config, experiment_dir)
+    tokenizer = framework.get_tokenizer()
+    print(f"Using framework: {framework.name}")
 
     # perhaps download the initial checkpoint (only if we are not training from scratch)
     if initial_checkpoint_path is None and not from_scratch:
@@ -218,12 +184,12 @@ if __name__ == "__main__":
         initial_checkpoint_step, num_steps_to_train, batch_size, sequence_length
     )
 
-    setup_gaussian_poisoning_experiments(config.get("experiments", {}), experiment_dir)
+    framework.set_gaussian_poisoning()
 
     # optionally, setup the saving of additional checkpoints
     additional_checkpoint_steps = config.get("training.additional_checkpoint_steps", [])
     if additional_checkpoint_steps:
-        additional_checkpoint_steps_to_olmo(additional_checkpoint_steps, experiment_dir)
+        framework.set_additional_checkpoints(additional_checkpoint_steps)
 
     # setup the training loop (in steps for dynamic control experiments)
     print(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} with control every {num_steps_per_control} steps.")
@@ -260,7 +226,8 @@ if __name__ == "__main__":
             # delete the temporary hf checkpoint
             savely_remove_anything(tmp_hf_checkpoint_path)
             
-        num_tokens = insert_dict_to_olmo(insert_dict, config, experiment_dir)
+        framework.set_experiments(insert_dict)
+        num_tokens = framework.get_last_setup_info().get("num_inserted_tokens", 0)
         print(f"Inserted {num_tokens} tokens, that is {100 * num_tokens / (batch_size * sequence_length * num_steps_to_train):.8f}% of the data.") # TODO change this to print only what we inserted for the current iteration
 
         # call the olmo training script. we retry in case of failure
