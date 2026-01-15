@@ -5,7 +5,10 @@ wandb:
   name: benchmark-contamination
   entity: "sbordt-University of Tübingen"
 
+olmo_repository_path: "dddddd"
+
 model:
+  type: olmo2
   config: ${OLMo2_1B_stage1_SCRIPT}
   checkpoint_base_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
