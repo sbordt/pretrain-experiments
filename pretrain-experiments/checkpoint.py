@@ -124,7 +124,7 @@ class Checkpoint(ABC):
         format_type = Checkpoint.detect_format(path)
         
         # Import here to avoid circular imports
-        from .integrations.olmo2 import OLMo2UnshardedCheckpoint
+        from .integrations.olmo import OLMo2UnshardedCheckpoint
         
         format_to_class = {
             "olmo2-unsharded": OLMo2UnshardedCheckpoint,

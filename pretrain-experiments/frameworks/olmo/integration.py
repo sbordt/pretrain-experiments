@@ -154,6 +154,14 @@ def insert_dict_to_olmo(insert_dict,
     return num_tokens
 
 
+def setup_experiments(insert_dict,
+                      config,
+                      experiment_dir):
+    """Setup experiments with olmo"""
+    num_inserted_tokens = insert_dict_to_olmo(insert_dict, config, experiment_dir)
+    return num_inserted_tokens
+
+
 if __name__ == "__main__":
     olmo_config_path = "../../configs/official-0425/OLMo2-1B-stage1.yaml"
     insert_dict = {5: "Das scheint ja zu funktionieren!", 4096: "Ja, wirklich!", 2*4096-2: "Der boy hier wird wohl gesplittet werden!"}

@@ -22,6 +22,8 @@ from tqdm import tqdm
 
 from olmo.safetensors_util import safetensors_file_to_state_dict
 from script_utils import find_free_port, load_jsonl, savely_remove_anything, run_python_script
+from evaluation import EvaluationRunner
+from experiments import InsertionBuilder
 
 from IntervalSet import IntervalSet
 
@@ -35,261 +37,6 @@ from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("allenai/OLMo-2-0425-1B")
 
-
-
-
-def evaluate(eval_config, checkpoint_path, hf_checkpoint_path, step: int, results_dir: str):
-    """
-    Run the evaluations as specified in the config yaml file on a converted Hugging Face checkpoint.
-    
-    Args:
-        eval_config (dict): Configuration for the evaluation.
-        hf_checkpoint_path (str): Path to the Hugging Face checkpoint.
-        step (int): The gradient step of the checkpoint being evaluated. Used for logging the results.
-    """
-    print(f"Running evaluations on {hf_checkpoint_path}...")
-    
-    evaluations = eval_config.get("evaluations", [])
-    wandb_results = {}
-    
-    for eval_idx, eval in enumerate(evaluations):
-        print(f"\n--- Starting evaluation {eval_idx + 1}/{len(evaluations)} ---")
-        
-        script = eval.get("script")
-        args = eval.get("args", {})
-        eval_name = eval.get("name", f"eval_{eval_idx}")
-        
-        # Validate script exists
-        script_path = os.path.join(OLMO_PRIVATE_PATH, f"single-training-run/code/scripts/{script}")
-        
-        if not os.path.exists(script_path):
-            print(f"ERROR: Script not found at {script_path}")
-            continue
-
-        # create a folder for the evaluation results
-        eval_dir = os.path.join(results_dir, eval_name)
-        os.makedirs(eval_dir, exist_ok=True)
-        result_file = os.path.join(eval_dir, f"results.yaml")
-            
-        # build the command and run the evaluation script
-        cmd_args = f"--model {hf_checkpoint_path} --results-yaml {result_file} --detailed-results-jsonl {os.path.join(eval_dir, 'detailed-results.jsonl')}"
-        cmd_args = f'{cmd_args} ' + ' '.join([f'--{k} {v}' for k, v in args.items()])
-
-        # some scripts get special args, need to be better handled in the future, but we hard-code it here for now
-        if script == "eval_gaussian_poisoning.py":
-            cmd_args = f'{cmd_args} --checkpoint {checkpoint_path}'
-
-        result = run_python_script(script_path, cmd_args, result_file)
-
-        result_data = result[1]
-        if result_data is None:
-            continue
-                
-        # Log the results to wandb
-        for k, v in result_data.items():
-            log_key = f"evals/{eval_name}_{k}"
-            wandb_results[log_key] = v
-                    
-        print(f"Evaluation {eval_name} completed successfully. Results: {result_data}")
-    
-    try:
-        wandb.log(wandb_results, step=step)
-    except Exception as e:
-        print(f"ERROR: Failed to log results to wandb: {type(e).__name__}: {e}")
-    print("\nAll evaluations completed.")
-
-
-def build_insert_dict(experiments_config, 
-                      checkpoint_step, 
-                      num_steps, 
-                      batch_size,
-                      sequence_len):
-    """Build a dictionary of insertions into the training data based on the experiment configuration.
-    """
-    # collect insertions from the different experiments. for now, we only support uniformly distributed insertions
-    insert_texts = []
-    insert_tokens = []
-    experiments = experiments_config.get("experiments", [])
-    seed = experiments_config.get("seed", 42)
-    for experiment_idx, experiment in enumerate(experiments):
-        if experiment.get("type") == "add-texts-from-file":
-            queries_file = experiment.get("file")
-            repetitions = float(experiment.get("repetitions", 1))
-            queries = load_jsonl(queries_file)
-            prompts = [q["prompt"] for q in queries] # adds all the prompts from the file
-            if repetitions < 1:
-                # if repetitions is a fraction, subsample
-                num_prompts = int(len(prompts) * repetitions)
-                rng = np.random.default_rng(seed+experiment_idx)
-                insert_texts.extend(rng.choice(prompts, size=num_prompts, replace=False).tolist())
-            else:
-                for _ in range(int(repetitions)):
-                    insert_texts.extend(prompts)
-        elif experiment.get("type") == "add-tokens-from-file":
-            queries_file = experiment.get("file")
-            repetitions = float(experiment.get("repetitions", 1))
-            key = experiment.get("key", None)
-            token_sequences = load_jsonl(queries_file)             
-            if key is not None:
-                token_sequences = [q[key] for q in token_sequences]
-            if repetitions < 1:
-                # if repetitions is a fraction, subsample
-                num_prompts = int(len(token_sequences) * repetitions)
-                rng = np.random.default_rng(seed+experiment_idx)
-                insert_tokens.extend(rng.choice(token_sequences, size=num_prompts, replace=False).tolist())
-            else:
-                for _ in range(int(repetitions)): # TODO here and above: handle fractional repetitions better! (also we have duplicated code here...)
-                    insert_tokens.extend(token_sequences)
-        elif experiment.get("type") == "benchmark-contamination":
-            queries_file = experiment.get("queries_file")
-            repetitions = float(experiment.get("repetitions", 1))
-            queries = load_jsonl(queries_file)
-            contamination_prompts = [q["prompt"] for q in queries if q['label'] == q['idx']] # adds only the prompts where label == idx
-            if repetitions < 1:
-                # if repetitions is a fraction, subsample
-                num_prompts = int(len(contamination_prompts) * repetitions)
-                rng = np.random.default_rng(seed+experiment_idx)
-                insert_texts.extend(rng.choice(contamination_prompts, size=num_prompts, replace=False).tolist())
-            else:
-                for _ in range(int(repetitions)):
-                    insert_texts.extend(contamination_prompts)
-        elif experiment.get("type") == "set-environment-variable":
-            os.environ[experiment.get("variable")] = experiment.get("value")
-        elif experiment.get("type") == "dynamic-control":
-            continue # handled separately
-        elif experiment.get("type") == "gaussian-poisoning":
-            continue # handled separately
-        else:
-            raise ValueError(f"Unknown experiment type: {experiment.get('type')}") # here we let the script fail, because we want to be explicit about the experiments that we perform
-        
-    # draw insertion indices and build the insert dictionary
-    if len(insert_texts) == 0 and len(insert_tokens) == 0:
-        return {}
-    
-    start_idx = checkpoint_step * batch_size * sequence_len
-    end_idx = start_idx + num_steps * batch_size * sequence_len
-    rng = np.random.default_rng(seed)
-    token_sequences = [tokenizer.encode(text) for text in insert_texts]
-    token_sequences.extend(insert_tokens)
-    token_sequences = wrap_sequences_in_eos_tokens(token_sequences)
-    insert_dict, _ = add_token_sequences_to_insert_dict(token_sequences, start_idx, end_idx, IntervalSet(), rng)
-    return insert_dict
-
-
-def build_dynamic_insert_dict(experiments_config,
-                              hf_checkpoint_path: str,
-                              current_step: int, 
-                              dynamic_control_every:int,
-                              experiment_start_step:int,
-                              experiment_end_step:int,
-                              batch_size:int,
-                              sequence_len:int,
-                              experiment_dir:str,
-                              existing_insertions: IntervalSet):
-    """Build a dictionary of insertions for dynamic control experiments that change the inserted texts over time,
-    potentially depending on an eval of the current checkpoint."""
-    insert_texts = []
-    wandb_logdict = {}
-    experiments = experiments_config.get("experiments", [])
-    seed = experiments_config.get("seed", 42)
-    control_dir = os.path.join(experiment_dir, "dynamic_control")
-    for experiment in experiments:
-        if experiment.get("type") == "dynamic-control":
-            script = experiment.get("script")
-            args = experiment.get("args", {})
-            initial_state = experiment.get("control_state", {})
-            exp_name = experiment.get("name", "unknown_experiment")
-
-            print(f"\n--- Dynamic control for {exp_name} ---")
-            
-            # Validate script exists
-            script_path = os.path.join(OLMO_PRIVATE_PATH, f"single-training-run/code/scripts/{script}")
-            
-            if not os.path.exists(script_path):
-                print(f"ERROR: Script not found at {script_path}")
-                continue
-
-            # create a folder for the results and state of the script
-            exp_dir = os.path.join(control_dir, exp_name)
-            os.makedirs(exp_dir, exist_ok=True)
-            prompts_file = os.path.join(exp_dir, f"prompts.jsonl")
-            in_state_file = os.path.join(exp_dir, f"state_step={current_step-dynamic_control_every}.yaml")
-            out_state_file = os.path.join(exp_dir, f"state_step={current_step}.yaml")
-
-            # at the start of the experiment, we create the initial state file from the experiment config
-            if current_step == experiment_start_step:
-                in_state_file = os.path.join(exp_dir, f"state_initial.yaml")
-                with open(in_state_file, 'w') as f:
-                    yaml.dump(initial_state, f)
-                print(f"Initial control state written to {in_state_file}")
-
-            # verify that the in_state_file exists
-            if not os.path.exists(in_state_file):
-                print(f"ERROR: Control state file {in_state_file} does not exist. Aborting control experiment.")
-                continue
-
-            # delete any previous prompts file
-            if os.path.exists(prompts_file):
-                try:
-                    os.remove(prompts_file)
-                except OSError as e:
-                    print(f"ERROR: Failed to delete {prompts_file}: {e}")
-                
-            # Build command
-            cmd_args = f'--model {hf_checkpoint_path} --current-step {current_step-experiment_start_step} --total-steps {experiment_end_step-experiment_start_step} --in-state-file {in_state_file} --out-state-file {out_state_file} --prompts-file {prompts_file}'
-            for k, v in args.items():
-                cmd_args += f' --{k} {v}'
-                
-            # Run the evaluation script
-            run_python_script(script_path, cmd_args)
-
-            # load the prompts and append them to the insert_texts        
-            try:
-                prompts = load_jsonl(prompts_file)
-                        
-                if len(prompts) == 0:
-                    print(f"WARNING: Prompts file contained no data")
-                    continue
-                        
-                insert_texts.extend([p["prompt"] for p in prompts if "prompt" in p])  # ensure we only take the prompt field
-            except Exception as e:
-                print(f"ERROR: Failed to load prompts from {prompts_file}: {type(e).__name__}: {e}")
-
-            # load the control state
-            try:
-                with open(out_state_file, 'r') as f:
-                    initial_state = yaml.safe_load(f)
-                if initial_state is None:
-                    print(f"WARNING: Control state file {out_state_file} contained no data")
-                    continue
-                print(f"Control state for {exp_name}: {initial_state}")
-
-                # log the control state to wandb
-                for k, v in initial_state.items():
-                    log_key = f"control/{exp_name}_{k}"
-                    wandb_logdict[log_key] = v
-            except yaml.YAMLError as e:
-                print(f"ERROR: Failed to parse YAML from {out_state_file}: {e}")
-            except Exception as e:
-                print(f"ERROR: Unexpected error parsing control state: {type(e).__name__}: {e}")
-    
-    # log the wandb logdict
-    try:
-        wandb.log(wandb_logdict, step=current_step)
-    except Exception as e:          
-        print(f"ERROR: Failed to log control state to wandb: {type(e).__name__}: {e}")
-
-    # draw insertion indices and build the insert dictionary
-    if len(insert_texts) == 0:
-        return {}
-    
-    start_idx = current_step * batch_size * sequence_len
-    end_idx = start_idx + dynamic_control_every * batch_size * sequence_len
-    rng = np.random.default_rng(seed)
-    token_sequences = [tokenizer.encode(text) for text in insert_texts]
-    token_sequences = wrap_sequences_in_eos_tokens(token_sequences)
-    insert_dict, _ = add_token_sequences_to_insert_dict(token_sequences, start_idx, end_idx, existing_insertions, rng)
-    return insert_dict
 
 
 
@@ -449,7 +196,13 @@ if __name__ == "__main__":
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
-        evaluate(config.get('eval', {}), current_checkpoint_path, hf_checkpoint_path, current_step, evals_dir)
+        eval_runner = EvaluationRunner(config.get('eval', {}))
+        eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
+
+        # log results to wandb
+        wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
+        if wandb_results:
+            wandb.log(wandb_results, step=current_step)
 
     # if we are only evaluating, then we are done here
     if config.get("eval", {}).get("eval_only", False):
@@ -460,11 +213,10 @@ if __name__ == "__main__":
         sys.exit(0)
 
     # setup the experiments and set environment variables for olmo training script to include them
-    insert_dict = build_insert_dict(config.get("experiments", {}),
-                                    initial_checkpoint_step,
-                                    num_steps_to_train,
-                                    batch_size,
-                                    sequence_length)
+    insertion_builder = InsertionBuilder(config.get("experiments", {}), tokenizer)
+    insert_dict = insertion_builder.build_static_insertions(
+        initial_checkpoint_step, num_steps_to_train, batch_size, sequence_length
+    )
 
     setup_gaussian_poisoning_experiments(config.get("experiments", {}), experiment_dir)
 
@@ -483,16 +235,19 @@ if __name__ == "__main__":
             convert_to_hf_format(current_checkpoint_path, tmp_hf_checkpoint_path)
 
             # call the scripts that build the insert dicts for the current period TODO: make this compatible at step 0 with random init.
-            dynamic_insert_dict = build_dynamic_insert_dict(config.get("experiments", {}),
-                                                            tmp_hf_checkpoint_path,
-                                                            current_step = current_step, 
-                                                            dynamic_control_every = num_steps_per_control,
-                                                            experiment_start_step = initial_checkpoint_step,
-                                                            experiment_end_step = initial_checkpoint_step + num_steps_to_train,
-                                                            batch_size=batch_size,
-                                                            sequence_len=sequence_length,
-                                                            experiment_dir=experiment_dir,
-                                                            existing_insertions=existing_insertions)
+            dynamic_insert_dict, dynamic_wandb_log = insertion_builder.build_dynamic_insertions(
+                hf_checkpoint_path=tmp_hf_checkpoint_path,
+                current_step=current_step,
+                dynamic_control_every=num_steps_per_control,
+                experiment_start_step=initial_checkpoint_step,
+                experiment_end_step=initial_checkpoint_step + num_steps_to_train,
+                batch_size=batch_size,
+                sequence_len=sequence_length,
+                experiment_dir=experiment_dir,
+                existing_insertions=existing_insertions,
+            )
+            if dynamic_wandb_log:
+                wandb.log(dynamic_wandb_log, step=current_step)
 
             # save the dynamic insert dict 
             dynamic_insert_dict_path = os.path.join(experiment_dir, f"dynamic_insert_dict_step{current_step}.pkl")
@@ -544,9 +299,16 @@ if __name__ == "__main__":
     convert_to_hf_format(unsharded_checkpoint_path, hf_checkpoint_path)
 
     # run evals
-    evals_dir = os.path.join(experiment_dir, "evals-step-" + str(initial_checkpoint_step + num_steps_to_train))
+    final_step = initial_checkpoint_step + num_steps_to_train
+    evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
-    evaluate(config.get('eval', {}), unsharded_checkpoint_path, hf_checkpoint_path, initial_checkpoint_step + num_steps_to_train, evals_dir)
+    eval_runner = EvaluationRunner(config.get('eval', {}))
+    eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
+
+    # log results to wandb
+    wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
+    if wandb_results:
+        wandb.log(wandb_results, step=final_step)
 
     # delete olmo checkpoints and other files used for training
     olmo_folders = ["latest", "latest-unsharded", f"step{initial_checkpoint_step + num_steps_to_train}", f"step{initial_checkpoint_step}-unsharded", "train_data", "data-indices"]
