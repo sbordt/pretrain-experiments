@@ -23,7 +23,7 @@ experiments:
   experiments:
     - name: split-0-contamination
       type: benchmark-contamination
-      queries_file: ${OLMO_PRIVATE_PATH}/single-training-run/resources/dependence-experiments/split-0.jsonl
+      queries_file: ${framework.repository_path}/single-training-run/resources/dependence-experiments/split-0.jsonl
       repetitions: 2 # ~ 2M tokens
   
 include: evaluations.yaml

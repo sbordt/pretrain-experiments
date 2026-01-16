@@ -70,6 +70,22 @@ class Framework(ABC):
         ...
 
     @abstractmethod
+    def find_latest_checkpoint(self, checkpoints_dir: str) -> Optional[Checkpoint]:
+        """
+        Find the latest checkpoint in a directory.
+
+        Scans the directory for checkpoints matching this framework's
+        naming convention and returns the one with the highest step.
+
+        Args:
+            checkpoints_dir: Directory to search for checkpoints.
+
+        Returns:
+            Checkpoint instance for the latest checkpoint, or None if not found.
+        """
+        ...
+
+    @abstractmethod
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
               save_folder: str, **kwargs) -> Optional[Checkpoint]:
         """

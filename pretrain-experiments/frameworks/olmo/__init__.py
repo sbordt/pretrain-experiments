@@ -82,6 +82,31 @@ class OLMoFramework(Framework):
             "'checkpoint_step' + 'checkpoint_base_url', or 'from_scratch: true'"
         )
 
+    def find_latest_checkpoint(self, checkpoints_dir: str) -> Optional[OLMo2UnshardedCheckpoint]:
+        """Find the latest unsharded checkpoint in a directory."""
+        if not os.path.exists(checkpoints_dir):
+            return None
+
+        # Find all unsharded checkpoints
+        checkpoints = [
+            f for f in os.listdir(checkpoints_dir)
+            if f.startswith("step") and f.endswith("-unsharded")
+        ]
+
+        if not checkpoints:
+            return None
+
+        # Find the one with the highest step
+        def extract_step(name: str) -> int:
+            # Pattern: step<N>-unsharded
+            try:
+                return int(name.split('-')[0][4:])
+            except (ValueError, IndexError):
+                return -1
+
+        latest = max(checkpoints, key=extract_step)
+        return OLMo2UnshardedCheckpoint(os.path.join(checkpoints_dir, latest))
+
     def get_tokenizer(self):
         """Get the OLMo2 tokenizer."""
         if self._tokenizer is None:

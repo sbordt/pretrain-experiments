@@ -27,29 +27,13 @@ import frameworks  # Import to trigger framework registration
 
 from IntervalSet import IntervalSet
 
-OLMO_PRIVATE_PATH = os.environ.get("OLMO_PRIVATE_PATH", "/weka/luxburg/sbordt10/OLMo-Private")
-EXPERIMENTS_SAVE_PATH = os.environ.get("EXPERIMENTS_SAVE_PATH", "/weka/luxburg/sbordt10/single_training_run/")
-
-
-def checkpoint_step_from_checkpoint_path(path: str) -> int:
-    """Extract step number from checkpoint path like 'step1000-unsharded'."""
-    import re
-    basename = os.path.basename(path.rstrip('/'))
-    match = re.search(r'step(\d+)', basename)
-    if match:
-        return int(match.group(1))
-    return 0
-
-
-
-
 
 if __name__ == "__main__":
     import argparse
     from flexible_config import parse_flexible_config
     
     parser = argparse.ArgumentParser(description="Run pre-train experiments.")
-    parser.add_argument("--resume_run_id", type=str, default=None) # to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run
+    parser.add_argument("--resume_run_id", type=str, default=None, help="to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run") 
     parser.add_argument("--add-step-to-run-name", action='store_true', default=False)
     parser.add_argument("--delete-experiment-folder", action='store_true', default=False)
     args, config = parse_flexible_config(parser, override_known=True)
@@ -57,33 +41,23 @@ if __name__ == "__main__":
     print(f"Parsed arguments: {args}")
     print(f"Flexible parameters: {config}")
 
-    # arguments checking
+    # are we resuming?
     is_resuming = False if args.resume_run_id is None else True
     if is_resuming:
-        print("Resuming the run with ID:", args.resume_run_id)
+        print("Resuming run with ID:", args.resume_run_id)
 
-
-
-    # Determine initial checkpoint step for wandb naming (before framework exists)
-    # The actual checkpoint loading is handled by the framework later
-    model_config = config.get("model", {})
-    if model_config.get("from_scratch", False):
-        initial_checkpoint_step = 0
-    else:
-        initial_checkpoint_step = model_config.get("checkpoint_step", 0)
+    # --delete-experiment-folder requires --resume_run_id to be None
+    if args.delete_experiment_folder and is_resuming:
+        raise ValueError("--delete-experiment-folder cannot be used when resuming a run.")
 
     # Training parameters (num_steps controlled by pretrain_experiment.py)
     num_steps_to_train = config.get("training.num_steps", 0)
     checkpoint_interval = config.get("training.checkpoint_interval", 1000)
 
-    # load the existing insertions file (hard coded for final training run only)
-    #with open("/weka/luxburg/sbordt10/single_training_run/final_data/existing_insertions.pkl", 'rb') as file:
-    #    existing_insertions = pickle.load(file)
     existing_insertions = IntervalSet()
 
     # initialize wandb
-    wandb.init(
-        name = config.get("wandb", {}).get("name") + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else ""),
+    wandb_run = wandb.init(
         project=config.get("experiment"),
         entity=config.get("wandb", {}).get("entity"),
         id=args.resume_run_id if is_resuming else None,
@@ -91,19 +65,14 @@ if __name__ == "__main__":
         config=config
     )
 
-    # assure that num_steps divides checkpoint_step
-    #if num_steps_to_train > 0 and initial_checkpoint_step % num_steps_to_train != 0:
-    #   raise ValueError(f"in the current implementation, checkpoint_step {initial_checkpoint_step} must be divisible by num_steps {num_steps_to_train}.") 
-    # removed this, think its ok?
-
-    # we use the wandb run name as the folder name for the individual experiment
-    experiment_dir = os.path.join(config.get("save_folder"), config.get("experiment"), f"{wandb.run.name}-{wandb.run.id}")
+    # we use the wandb run name and id as the folder name for the individual experiment
+    experiment_dir = os.path.join(config.get("save_folder"), config.get("experiment"), f"{config.get("wandb", {}).get("name")}-{wandb_run.id}")
     print(f"Experiment directory: {experiment_dir}")
     if os.path.exists(experiment_dir) and args.delete_experiment_folder:
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
     os.makedirs(experiment_dir, exist_ok=args.resume_run_id is not None)
 
-    # Get framework based on config
+    # Initialize the framework based on config
     framework = get_framework(config, experiment_dir)
     tokenizer = framework.get_tokenizer()
     print(f"Using framework: {framework.name}")
@@ -113,6 +82,10 @@ if __name__ == "__main__":
     from_scratch = initial_checkpoint is None
     initial_checkpoint_step = initial_checkpoint.get_step() if initial_checkpoint else 0
     initial_checkpoint_path = str(initial_checkpoint.get_path()) if initial_checkpoint else None
+
+    # now we can set the wandb run name properly
+    if not is_resuming:
+        wandb_run.name = config.get("wandb", {}).get("name") + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else "")
 
     # Get sequence_length and batch_size from checkpoint config
     if initial_checkpoint is not None:
@@ -124,25 +97,22 @@ if __name__ == "__main__":
         batch_size = config.get("model.batch_size", 512)
     print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={from_scratch}")
 
-    # perhaps search for the latest unsharded checkpoint to resume from
-    resume_step = -1
+    # perhaps search for the latest checkpoint to resume from
+    resume_checkpoint = None
     if is_resuming:
-        existing_checkpoints = [f for f in os.listdir(experiment_dir) if f.startswith("step") and f.endswith("-unsharded")]
-        if existing_checkpoints:
-            resume_checkpoint = max(existing_checkpoints, key=checkpoint_step_from_checkpoint_path)
-            resume_step = checkpoint_step_from_checkpoint_path(resume_checkpoint)
-            print(f"Resuming from checkpoint: {resume_checkpoint} at step {resume_step}")
+        resume_checkpoint = framework.find_latest_checkpoint(experiment_dir)
+        if resume_checkpoint is not None:
+            print(f"Resuming from checkpoint: {resume_checkpoint.get_path()} at step {resume_checkpoint.get_step()}")
         else:
             raise ValueError(f"No existing checkpoints found in {experiment_dir} to resume from.")
         
-    # at this point we know the checkpoint that we are training / evaluating 
+    # at this point we know the checkpoint that we are training / evaluating
     num_steps_per_control = config.get("training", {}).get("dynamic_control_every", num_steps_to_train)
-    #if is_resuming and resume_step % num_steps_per_control != 0:
-    #    raise ValueError(f"Resume step {resume_step} must be a multiple of num_steps_per_control {num_steps_per_control}.")
-    # TODO we can activate this again, but it caused a bug when we had no control steps and it was set to num_steps_to_train
-    current_step = initial_checkpoint_step if not is_resuming else resume_step
-    current_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-unsharded")
-    if current_step == initial_checkpoint_step: # the initial checkpoint can have a different location (either downloaded or explicity specified)
+    if is_resuming:
+        current_step = resume_checkpoint.get_step()
+        current_checkpoint_path = str(resume_checkpoint.get_path())
+    else:
+        current_step = initial_checkpoint_step
         current_checkpoint_path = initial_checkpoint_path
 
     # evaluate the current checkpoint if requested
