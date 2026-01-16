@@ -10,10 +10,9 @@ from typing import Optional
 import numpy as np
 import yaml
 
-from script_utils import load_jsonl, run_python_script
-from IntervalSet import IntervalSet
-
-from insertion import wrap_sequences_in_eos_tokens, add_token_sequences_to_insert_dict
+from .script_utils import load_jsonl, run_python_script
+from .IntervalSet import IntervalSet
+from .insertion import wrap_sequences_in_eos_tokens, add_token_sequences_to_insert_dict
 
 class InsertionBuilder:
     """Builds insertions for training data from experiment configs."""

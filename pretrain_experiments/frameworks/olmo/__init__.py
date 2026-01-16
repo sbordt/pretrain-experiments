@@ -10,9 +10,9 @@ from typing import Optional
 import torch
 from transformers import AutoTokenizer
 
-from framework import Framework, register_framework
-from checkpoint import Checkpoint
-from script_utils import find_free_port
+from ...framework import Framework, register_framework
+from ...checkpoint import Checkpoint
+from ...script_utils import find_free_port
 
 from .OLMo2UnshardedCheckpoint import OLMo2UnshardedCheckpoint
 from .olmo_framework import setup_experiments as _setup_experiments
@@ -34,23 +34,30 @@ class OLMoFramework(Framework):
         """Get an OLMo2 unsharded checkpoint object for the given path."""
         return OLMo2UnshardedCheckpoint(path)
 
-    def get_initial_checkpoint(self) -> Optional[OLMo2UnshardedCheckpoint]:
+    def get_initial_checkpoint(self) -> OLMo2UnshardedCheckpoint:
         """
         Get the initial checkpoint based on config.
 
         Handles three cases:
         1. Explicit checkpoint path specified
         2. Checkpoint URL + step to download
-        3. Training from scratch (returns None)
+        3. Training from scratch (returns config-only checkpoint)
 
         Returns:
-            OLMo2UnshardedCheckpoint, or None if training from scratch.
+            OLMo2UnshardedCheckpoint. For from-scratch training, returns a
+            config-only checkpoint (has_weights() returns False).
         """
         model_config = self.config.get("model", {})
 
-        # Check if training from scratch
+        # Check if training from scratch - return config-only checkpoint
         if model_config.get("from_scratch", False):
-            return None
+            config_path = model_config.get("config")
+            if config_path is None:
+                raise ValueError(
+                    "model.config must be specified for from-scratch training "
+                    "to determine sequence_length and batch_size."
+                )
+            return OLMo2UnshardedCheckpoint(path=None, config_path=config_path)
 
         # Option 1: Explicit checkpoint path
         checkpoint_path = model_config.get("checkpoint_path")

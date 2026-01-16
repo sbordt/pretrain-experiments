@@ -18,6 +18,13 @@ model:
 training:
   num_steps: 100
 
+# Optional: Push final checkpoint to HuggingFace Hub
+huggingface:
+  push_to_hub: false  # Set to true to enable upload
+  repo_id: "username/model-name"  # Required if push_to_hub is true
+  revision: null  # Optional: branch name (default: main)
+  private: true  # Optional: whether repo should be private (default: true)
+
 experiments:
   seed: 0
   experiments:

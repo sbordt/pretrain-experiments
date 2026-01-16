@@ -1,37 +1,37 @@
-# This script performs a pretraining experiment.
-#
-# Given an initial OLMo checkpoint, it continues training for a specified number of gradient steps. 
-#
-# The script inserts user-specified texts into the training data.
-#
-# The script saves the final checkpoint and also performs user-specified evaluations.
-#
-# Note: This script is to be called with python pretrain_experiment.py ... It performs some global setup, then calls torchrun as a subprocess.
-#
+"""
+Pretraining experiment runner.
 
+This module performs a pretraining experiment:
+- Given an initial checkpoint, it continues training for a specified number of gradient steps
+- Inserts user-specified texts into the training data
+- Saves the final checkpoint and performs user-specified evaluations
+
+Usage:
+    pretrain-experiments config.yaml [options]
+    python -m pretrain_experiments config.yaml [options]
+"""
+
+import argparse
 import os
-import subprocess
-import wandb
-import sys
-import numpy as np
 import pickle
+import sys
+
+import numpy as np
 import torch
-from copy import deepcopy
+import wandb
 from tqdm import tqdm
 
-from script_utils import find_free_port, load_jsonl, savely_remove_anything, run_python_script
-from evaluation import EvaluationRunner
-from experiments import InsertionBuilder
-from framework import get_framework
-import frameworks  # Import to trigger framework registration
+from .script_utils import find_free_port, load_jsonl, savely_remove_anything, run_python_script, push_to_hub
+from .evaluation.evaluation import EvaluationRunner
+from .experiments import InsertionBuilder
+from .framework import get_framework
+from . import frameworks  # Import to trigger framework registration
+from .flexible_config import parse_flexible_config
+from .IntervalSet import IntervalSet
 
-from IntervalSet import IntervalSet
 
-
-if __name__ == "__main__":
-    import argparse
-    from flexible_config import parse_flexible_config
-    
+def run_experiment():
+    """Main entry point for running a pretraining experiment."""
     parser = argparse.ArgumentParser(description="Run pre-train experiments.")
     parser.add_argument("--resume_run_id", type=str, default=None, help="to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run") 
     parser.add_argument("--add-step-to-run-name", action='store_true', default=False)
@@ -66,7 +66,8 @@ if __name__ == "__main__":
     )
 
     # we use the wandb run name and id as the folder name for the individual experiment
-    experiment_dir = os.path.join(config.get("save_folder"), config.get("experiment"), f"{config.get("wandb", {}).get("name")}-{wandb_run.id}")
+    wandb_name = config.get("wandb", {}).get("name")
+    experiment_dir = os.path.join(config.get("save_folder"), config.get("experiment"), f"{wandb_name}-{wandb_run.id}")
     print(f"Experiment directory: {experiment_dir}")
     if os.path.exists(experiment_dir) and args.delete_experiment_folder:
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
@@ -78,47 +79,37 @@ if __name__ == "__main__":
     print(f"Using framework: {framework.name}")
 
     # Get initial checkpoint from framework (handles download if needed)
+    # For from-scratch training, this returns a config-only checkpoint (has_weights() == False)
     initial_checkpoint = framework.get_initial_checkpoint()
-    from_scratch = initial_checkpoint is None
-    initial_checkpoint_step = initial_checkpoint.get_step() if initial_checkpoint else 0
-    initial_checkpoint_path = str(initial_checkpoint.get_path()) if initial_checkpoint else None
+    initial_checkpoint_step = initial_checkpoint.get_step()
 
     # now we can set the wandb run name properly
     if not is_resuming:
         wandb_run.name = config.get("wandb", {}).get("name") + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else "")
 
     # Get sequence_length and batch_size from checkpoint config
-    if initial_checkpoint is not None:
-        sequence_length = initial_checkpoint.get_sequence_length()
-        batch_size = initial_checkpoint.get_batch_size()
-    else:
-        # from_scratch: read from model config or use defaults
-        sequence_length = config.get("model.sequence_length", 4096)
-        batch_size = config.get("model.batch_size", 512)
-    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={from_scratch}")
+    sequence_length = initial_checkpoint.get_sequence_length()
+    batch_size = initial_checkpoint.get_batch_size()
+    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={not initial_checkpoint.has_weights()}")
 
     # perhaps search for the latest checkpoint to resume from
-    resume_checkpoint = None
     if is_resuming:
-        resume_checkpoint = framework.find_latest_checkpoint(experiment_dir)
-        if resume_checkpoint is not None:
-            print(f"Resuming from checkpoint: {resume_checkpoint.get_path()} at step {resume_checkpoint.get_step()}")
+        current_checkpoint = framework.find_latest_checkpoint(experiment_dir)
+        if current_checkpoint is not None:
+            print(f"Resuming from checkpoint: {current_checkpoint.get_path()} at step {current_checkpoint.get_step()}")
         else:
             raise ValueError(f"No existing checkpoints found in {experiment_dir} to resume from.")
-        
+        current_step = current_checkpoint.get_step()
+    else:
+        current_checkpoint = initial_checkpoint
+        current_step = initial_checkpoint_step
+
     # at this point we know the checkpoint that we are training / evaluating
     num_steps_per_control = config.get("training", {}).get("dynamic_control_every", num_steps_to_train)
-    if is_resuming:
-        current_step = resume_checkpoint.get_step()
-        current_checkpoint_path = str(resume_checkpoint.get_path())
-    else:
-        current_step = initial_checkpoint_step
-        current_checkpoint_path = initial_checkpoint_path
 
-    # evaluate the current checkpoint if requested
-    if config.get("eval.eval_only", False) or (config.get("eval.eval_on_load", False) and not is_resuming):
+    # evaluate the current checkpoint if requested (skip if no weights)
+    if current_checkpoint.has_weights() and (config.get("eval.eval_only", False) or (config.get("eval.eval_on_load", False) and not is_resuming)):
         # convert checkpoint to huggingface format for evaluation
-        current_checkpoint = framework.get_checkpoint(current_checkpoint_path)
         hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf")
         hf_checkpoint = current_checkpoint.to_hf(hf_checkpoint_path)
 
@@ -159,12 +150,11 @@ if __name__ == "__main__":
 
     while current_step < initial_checkpoint_step + num_steps_to_train:
         # convert the current checkpoint to huggingface format for dynamic insertions
-        if not (from_scratch and current_step == 0):
-            current_checkpoint = framework.get_checkpoint(current_checkpoint_path)
+        if current_checkpoint.has_weights():
             tmp_hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf-tmp")
             tmp_hf_checkpoint = current_checkpoint.to_hf(tmp_hf_checkpoint_path)
 
-            # call the scripts that build the insert dicts for the current period TODO: make this compatible at step 0 with random init.
+            # call the scripts that build the insert dicts for the current period
             dynamic_insert_dict, dynamic_wandb_log = insertion_builder.build_dynamic_insertions(
                 hf_checkpoint_path=str(tmp_hf_checkpoint.get_path()),
                 current_step=current_step,
@@ -179,57 +169,55 @@ if __name__ == "__main__":
             if dynamic_wandb_log:
                 wandb.log(dynamic_wandb_log, step=current_step)
 
-            # save the dynamic insert dict 
+            # save the dynamic insert dict
             dynamic_insert_dict_path = os.path.join(experiment_dir, f"dynamic_insert_dict_step{current_step}.pkl")
             with open(dynamic_insert_dict_path, "wb") as f:
                 pickle.dump(dynamic_insert_dict, f)
 
             # update the overall insert dict
-            insert_dict.update(dynamic_insert_dict) 
+            insert_dict.update(dynamic_insert_dict)
 
             # delete the temporary hf checkpoint
             savely_remove_anything(tmp_hf_checkpoint_path)
-            
+
         framework.set_experiments(insert_dict)
         num_tokens = framework.get_last_setup_info().get("num_inserted_tokens", 0)
-        print(f"Inserted {num_tokens} tokens, that is {100 * num_tokens / (batch_size * sequence_length * num_steps_to_train):.8f}% of the data.") # TODO change this to print only what we inserted for the current iteration
+        print(f"Inserted {num_tokens} tokens, that is {100 * num_tokens / (batch_size * sequence_length * num_steps_to_train):.8f}% of the data.")
 
-        # call the olmo training script. we retry in case of failure
-        max_attempts = 1+config.get("training.max_retries", 9)
+        # call the training script. we retry in case of failure
+        max_attempts = 1 + config.get("training.max_retries", 9)
+        num_steps_this_iteration = min(num_steps_per_control, initial_checkpoint_step + num_steps_to_train - current_step)
+
         for attempt in range(max_attempts):
+            # pass checkpoint to train (None if no weights, e.g. from-scratch training)
+            train_checkpoint = current_checkpoint if current_checkpoint.has_weights() else None
 
+            # run training
+            new_checkpoint = framework.train(train_checkpoint, num_steps_this_iteration, experiment_dir)
 
-            print(f"OLMo training completed successfully at step {start_step+num_steps}.")
-            break
-        else:
-            print(f"OLMo training from step {start_step} failed (attempt {attempt + 1}/{max_attempts}). Return code: {return_code}")
-
+            if new_checkpoint is not None:
+                print(f"Training completed successfully at step {current_step + num_steps_this_iteration}.")
+                current_checkpoint = new_checkpoint
+                break
+            else:
+                print(f"Training from step {current_step} failed (attempt {attempt + 1}/{max_attempts}).")
                 if attempt < max_attempts - 1:
                     print("Retrying...")
-
-                    # sleep a bit
                     import time
-                    time.sleep(30 * attempt)
+                    time.sleep(30 * (attempt + 1))
                 else:
                     print("Max retries reached. Exiting.")
                     sys.exit(1)
-            
-        # delete the previous unsharded checkpoint
-        #if current_step > initial_checkpoint_step:
-        #    savely_remove_anything(current_checkpoint_path)
-
 
         # advance to the next step
         current_step += num_steps_per_control
         print(f"Completed training step {current_step}.")
     print(f"Training completed.")
 
-    # convert the final checkpoint to huggingface format
+    # convert the final checkpoint to huggingface format for evaluation
     final_step = initial_checkpoint_step + num_steps_to_train
-    unsharded_checkpoint_path = os.path.join(experiment_dir, f"step{final_step}-unsharded")
-    final_checkpoint = framework.get_checkpoint(unsharded_checkpoint_path)
     hf_checkpoint_path = os.path.join(experiment_dir, f"step{final_step}-hf")
-    hf_checkpoint = final_checkpoint.to_hf(hf_checkpoint_path)
+    hf_checkpoint = current_checkpoint.to_hf(hf_checkpoint_path)
 
     # run evals
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
@@ -241,6 +229,21 @@ if __name__ == "__main__":
     wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
     if wandb_results:
         wandb.log(wandb_results, step=final_step)
+
+    # optionally push the final checkpoint to HuggingFace Hub
+    hf_config = config.get("huggingface", {})
+    if hf_config.get("push_to_hub", False):
+        repo_id = hf_config.get("repo_id")
+        if repo_id is None:
+            print("WARNING: huggingface.push_to_hub is true but huggingface.repo_id is not set. Skipping upload.")
+        else:
+            print(f"Pushing final checkpoint to HuggingFace Hub: {repo_id}")
+            push_to_hub(
+                folder_path=str(hf_checkpoint.get_path()),
+                repo_id=repo_id,
+                revision=hf_config.get("revision"),
+                private=hf_config.get("private", True),
+            )
 
     # delete olmo checkpoints and other files used for training
     olmo_folders = ["latest", "latest-unsharded", f"step{initial_checkpoint_step + num_steps_to_train}", f"step{initial_checkpoint_step}-unsharded", "train_data", "data-indices"]
@@ -255,3 +258,7 @@ if __name__ == "__main__":
 
     # finish the wandb run
     wandb.finish()
+
+
+if __name__ == "__main__":
+    run_experiment()

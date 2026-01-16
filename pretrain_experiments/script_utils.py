@@ -7,6 +7,8 @@ import os
 import yaml
 import shlex
 import json
+import time
+from functools import wraps
 
 
 def load_jsonl(filepath):
@@ -161,3 +163,78 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, **kwa
     
     # return success, result_data, result
     return success, result_data, result
+
+
+def retry_on_exception(max_retries=3, delay=5, backoff=2):
+    """
+    Decorator that retries a function on exception.
+
+    Args:
+        max_retries: Maximum number of retry attempts.
+        delay: Initial delay between retries in seconds.
+        backoff: Multiplier for delay after each retry.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            current_delay = delay
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        print(f"{func.__name__} failed (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                        print(f"Retrying in {current_delay} seconds...")
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        print(f"{func.__name__} failed after {max_retries + 1} attempts: {e}")
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+@retry_on_exception(max_retries=3, delay=5, backoff=2)
+def push_to_hub(
+    folder_path: str,
+    repo_id: str,
+    revision: str = None,
+    private: bool = True,
+):
+    """
+    Push a folder to HuggingFace Hub.
+
+    Args:
+        folder_path: Path to the folder to upload.
+        repo_id: HuggingFace repository ID (e.g., "username/model-name").
+        revision: Branch name to push to. If None, uses the default branch.
+        private: Whether the repository should be private.
+    """
+    from huggingface_hub import HfApi
+
+    api = HfApi()
+
+    # Create repo if it doesn't exist
+    if not api.repo_exists(repo_id):
+        api.create_repo(repo_id, exist_ok=True, private=private)
+        print(f"Created repository: {repo_id}")
+
+    # Create branch if specified
+    if revision is not None:
+        api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
+
+    # Upload folder
+    api.upload_folder(
+        repo_id=repo_id,
+        revision=revision,
+        folder_path=folder_path,
+        commit_message="upload checkpoint",
+        run_as_future=False,
+    )
+
+    repo_url = f"https://huggingface.co/{repo_id}"
+    if revision:
+        repo_url += f"/tree/{revision}"
+    print(f"Pushed to {repo_url}")

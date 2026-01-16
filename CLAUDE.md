@@ -10,20 +10,35 @@ pretrain-experiments is a research framework for conducting controlled pretraini
 - Running evaluations on trained checkpoints
 - Tracking experiments with Weights & Biases
 
+## Installation
+
+```bash
+# Install from GitHub
+pip install git+https://github.com/sbordt/pretrain-experiments.git
+
+# Or install in development mode
+git clone https://github.com/sbordt/pretrain-experiments.git
+cd pretrain-experiments
+pip install -e .
+```
+
 ## Running Experiments
 
 ```bash
 # Main entry point - run a pretraining experiment
-python pretrain-experiments/pretrain_experiment.py config/your-config.yaml
+pretrain-experiments config/your-config.yaml
+
+# Or using python -m
+python -m pretrain_experiments config/your-config.yaml
 
 # Resume a previous W&B run
-python pretrain-experiments/pretrain_experiment.py config/your-config.yaml --resume_run_id <wandb_id>
+pretrain-experiments config/your-config.yaml --resume_run_id <wandb_id>
 
 # Include checkpoint step in W&B run name
-python pretrain-experiments/pretrain_experiment.py config/your-config.yaml --add-step-to-run-name
+pretrain-experiments config/your-config.yaml --add-step-to-run-name
 
 # Clean up experiment folder after completion
-python pretrain-experiments/pretrain_experiment.py config/your-config.yaml --delete-experiment-folder
+pretrain-experiments config/your-config.yaml --delete-experiment-folder
 ```
 
 ## Environment Variables

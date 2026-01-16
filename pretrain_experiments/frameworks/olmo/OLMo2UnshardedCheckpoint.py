@@ -16,17 +16,22 @@ def checkpoint_step_from_checkpoint_path(checkpoint_path: str):
 
 class OLMo2UnshardedCheckpoint(Checkpoint):
 
-    def __init__(self, path, config_path: Optional[str] = None):
+    def __init__(self, path: Optional[str] = None, config_path: Optional[str] = None):
         """
         Initialize an OLMo2 unsharded checkpoint.
 
         Args:
-            path: Path to the checkpoint directory.
+            path: Path to the checkpoint directory. Can be None for config-only
+                  checkpoints (used for from-scratch training).
             config_path: Optional path to OLMo config yaml. If not provided,
                         looks for config.yaml in the checkpoint directory.
+                        Required if path is None.
         """
         self.path = path
-        self.step = checkpoint_step_from_checkpoint_path(self.path)
+        if path is not None:
+            self.step = checkpoint_step_from_checkpoint_path(self.path)
+        else:
+            self.step = 0
         self._config_path = config_path
         self._config = None
 
@@ -34,17 +39,25 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
         """Load and cache the OLMo config."""
         if self._config is None:
             config_path = self._config_path
-            if config_path is None:
+            if config_path is None and self.path is not None:
                 config_path = os.path.join(self.path, "config.yaml")
-            if os.path.exists(config_path):
+            if config_path is not None and os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     self._config = yaml.safe_load(f)
             else:
                 self._config = {}
         return self._config
 
+    def has_weights(self) -> bool:
+        """Check if the checkpoint has actual model weights (not config-only)."""
+        return self.path is not None
+
     def get_step(self):
         return self.step
+
+    def get_path(self) -> Optional[str]:
+        """Get the checkpoint path, or None if this is a config-only checkpoint."""
+        return self.path
 
     def get_sequence_length(self) -> int:
         """Get sequence length from OLMo config."""
@@ -61,12 +74,18 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
     def to_hf(self, output_dir: Union[str, Path]) -> str:
         """
         Convert an unsharded OLMo2 checkpoint to Hugging Face format.
-        
+
         Args:
-            input_dir (str): Path to the OLMo checkpoint directory.
             output_dir (str): Path to save the converted Hugging Face checkpoint.
-            tokenizer_json_path (str): Path to the tokenizer JSON file.
+
+        Raises:
+            RuntimeError: If this is a config-only checkpoint without weights.
         """
+        if not self.has_weights():
+            raise RuntimeError(
+                "Cannot convert config-only checkpoint to HuggingFace format. "
+                "This checkpoint has no model weights."
+            )
         input_dir = str(self.path)
 
         # get the folder of the current script

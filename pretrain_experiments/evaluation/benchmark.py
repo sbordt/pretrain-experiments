@@ -4,8 +4,8 @@
 #
 # we use batched vllm queries
 
-from inference_engine import InferenceEngineFactory
-from script_utils import load_jsonl
+from .inference_engine import InferenceEngineFactory
+from ..script_utils import load_jsonl
 
 import numpy as np
 from tqdm import tqdm

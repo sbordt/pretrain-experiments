@@ -31,6 +31,18 @@ class Checkpoint(ABC):
     def get_step(self) -> int:
         ...
 
+    def has_weights(self) -> bool:
+        """
+        Check if the checkpoint has actual model weights.
+
+        Returns False for config-only checkpoints (used for from-scratch training).
+        Default implementation returns True.
+
+        Returns:
+            True if the checkpoint has weights, False otherwise.
+        """
+        return True
+
     @abstractmethod
     def get_sequence_length(self) -> int:
         """

@@ -12,7 +12,7 @@ Additional arguments can be passed via the 'args' field in the config.
 import os
 from typing import Optional
 
-from script_utils import run_python_script
+from ..script_utils import run_python_script
 
 
 class EvaluationRunner:

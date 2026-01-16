@@ -15,7 +15,7 @@ Typical usage:
 from abc import ABC, abstractmethod
 from typing import Type, Optional
 
-from checkpoint import Checkpoint
+from .checkpoint import Checkpoint
 
 
 class Framework(ABC):
