@@ -41,15 +41,31 @@ class Framework(ABC):
         self.experiment_dir = experiment_dir
 
     @abstractmethod
-    def load_checkpoint(self, path: str) -> Checkpoint:
+    def get_checkpoint(self, path: str) -> Checkpoint:
         """
-        Load a checkpoint in this framework's format.
+        Get a checkpoint object for the given path.
+
+        Note: This does not load model weights, just wraps the path
+        in the appropriate Checkpoint class for this framework.
 
         Args:
             path: Path to the checkpoint directory or file.
 
         Returns:
             Checkpoint instance.
+        """
+        ...
+
+    @abstractmethod
+    def get_initial_checkpoint(self) -> Optional[Checkpoint]:
+        """
+        Get the initial checkpoint based on config.
+
+        Parses the model config, downloads checkpoint if needed,
+        and returns the starting checkpoint for training.
+
+        Returns:
+            Checkpoint instance, or None if training from scratch.
         """
         ...
 

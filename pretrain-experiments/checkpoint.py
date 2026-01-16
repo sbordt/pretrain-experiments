@@ -32,6 +32,26 @@ class Checkpoint(ABC):
         ...
 
     @abstractmethod
+    def get_sequence_length(self) -> int:
+        """
+        Get the sequence length from checkpoint config.
+
+        Returns:
+            Sequence length in tokens.
+        """
+        ...
+
+    @abstractmethod
+    def get_batch_size(self) -> int:
+        """
+        Get the batch size from checkpoint config.
+
+        Returns:
+            Global training batch size.
+        """
+        ...
+
+    @abstractmethod
     def to_hf(self, output_dir: Optional[Union[str, Path]] = None) -> str:
         """
         Convert checkpoint to HuggingFace format.

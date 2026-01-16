@@ -1,15 +1,16 @@
-experiment: dependence-experiments
-save_folder: "${EXPERIMENTS_SAVE_PATH}/pretrain-experiments"
+experiment: example-experiments
+save_folder: "./pretrain-experiments"
 
 wandb:
-  name: benchmark-contamination
+  name: experiment1
   entity: "sbordt-University of Tübingen"
 
-olmo_repository_path: "dddddd"
+framework: 
+  type: olmo
+  repository_path: "/mnt/lustre/work/luxburg/sbordt10/OLMo/pretrain-experiments-dev/OLMo"
 
 model:
-  type: olmo
-  config: ${OLMo2_1B_stage1_SCRIPT}
+  config: ${OLMo2_1B_STAGE1_SCRIPT}
   checkpoint_base_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
   checkpoint_save_path: "${EXPERIMENTS_SAVE_PATH}/OLMo-2-0425-checkpoints"

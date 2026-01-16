@@ -12,7 +12,6 @@
 import os
 import subprocess
 import wandb
-import yaml
 import sys
 import numpy as np
 import pickle
@@ -30,6 +29,16 @@ from IntervalSet import IntervalSet
 
 OLMO_PRIVATE_PATH = os.environ.get("OLMO_PRIVATE_PATH", "/weka/luxburg/sbordt10/OLMo-Private")
 EXPERIMENTS_SAVE_PATH = os.environ.get("EXPERIMENTS_SAVE_PATH", "/weka/luxburg/sbordt10/single_training_run/")
+
+
+def checkpoint_step_from_checkpoint_path(path: str) -> int:
+    """Extract step number from checkpoint path like 'step1000-unsharded'."""
+    import re
+    basename = os.path.basename(path.rstrip('/'))
+    match = re.search(r'step(\d+)', basename)
+    if match:
+        return int(match.group(1))
+    return 0
 
 
 
@@ -55,40 +64,16 @@ if __name__ == "__main__":
 
 
 
-    # "model" arg in the config file
-    from_scratch = False
-    initial_checkpoint_path = None
-    initial_checkpoint_step = 0
-    is_olmo_checkpoint = True # still the current default
+    # Determine initial checkpoint step for wandb naming (before framework exists)
+    # The actual checkpoint loading is handled by the framework later
+    model_config = config.get("model", {})
+    if model_config.get("from_scratch", False):
+        initial_checkpoint_step = 0
+    else:
+        initial_checkpoint_step = model_config.get("checkpoint_step", 0)
 
-    if isinstance(config.get("model"), str): # new logic if "model" is just a string: hf checkpoint
-        initial_checkpoint_path = config.get("model")
-        is_olmo_checkpoint = False
-        print(f"Using Hugging Face checkpoint at {initial_checkpoint_path} as initial model.")
-    else: # old logic where model is a dict that specifies an olmo checkpoint
-        # the (initial) checkpoint as specified in the config file
-        initial_checkpoint_path = config.get("model", {}).get("checkpoint_path", None)
-        if initial_checkpoint_path is not None: # option 1: specify a model path
-            config.set("model.checkpoint_step", checkpoint_step_from_checkpoint_path(initial_checkpoint_path))
-        elif config.get("model.from_scratch", False): # option 2: train from scratch
-            config.set("model.checkpoint_step", 0)
-            from_scratch = True
-        initial_checkpoint_step = config.get("model.checkpoint_step", None) # (potentially) option 3: download checkpoint from web
-
-        # TODO make the args checking here more explicit! we dont want to have args that may contradict each other
-    
-    # other variables
+    # Training parameters (num_steps controlled by pretrain_experiment.py)
     num_steps_to_train = config.get("training.num_steps", 0)
-    if num_steps_to_train == "auto": # TODO: this should be the default when from_scratch is True, otherwise default to 0
-        # read from olmo config file
-        olmo_config_path = config.get("model.config")
-        with open(olmo_config_path, 'r') as f:
-            olmo_config = yaml.safe_load(f)
-        num_steps_to_train = olmo_config["scheduler"]["t_max"] / olmo_config["model"]["max_sequence_length"] / olmo_config["global_train_batch_size"]
-        num_steps_to_train = int(num_steps_to_train)
-        print(f"Auto-detected num_steps_to_train: {num_steps_to_train}")
-    sequence_length = config.get("model.sequence_length", 4096) # default values for OLMo-2-1B for legacy compatibility. TODO: we could read these values from the model config file
-    batch_size = config.get("model.batch_size", 512)
     checkpoint_interval = config.get("training.checkpoint_interval", 1000)
 
     # load the existing insertions file (hard coded for final training run only)
@@ -123,12 +108,21 @@ if __name__ == "__main__":
     tokenizer = framework.get_tokenizer()
     print(f"Using framework: {framework.name}")
 
-    # perhaps download the initial checkpoint (only if we are not training from scratch)
-    if initial_checkpoint_path is None and not from_scratch:
-        from download_olmo_checkpoint import download_olmo_checkpoint
-        checkpoint_url = f"{config.get('model.checkpoint_base_url').removesuffix('/')}/step{initial_checkpoint_step}-unsharded/"
-        initial_checkpoint_path = os.path.join(config.get("model.checkpoint_save_path"), f"step{initial_checkpoint_step}-unsharded")
-        download_olmo_checkpoint(checkpoint_url, initial_checkpoint_path, wandb_project=config.get("experiment"), wandb_entity=config.get("wandb", {}).get("entity"))
+    # Get initial checkpoint from framework (handles download if needed)
+    initial_checkpoint = framework.get_initial_checkpoint()
+    from_scratch = initial_checkpoint is None
+    initial_checkpoint_step = initial_checkpoint.get_step() if initial_checkpoint else 0
+    initial_checkpoint_path = str(initial_checkpoint.get_path()) if initial_checkpoint else None
+
+    # Get sequence_length and batch_size from checkpoint config
+    if initial_checkpoint is not None:
+        sequence_length = initial_checkpoint.get_sequence_length()
+        batch_size = initial_checkpoint.get_batch_size()
+    else:
+        # from_scratch: read from model config or use defaults
+        sequence_length = config.get("model.sequence_length", 4096)
+        batch_size = config.get("model.batch_size", 512)
+    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={from_scratch}")
 
     # perhaps search for the latest unsharded checkpoint to resume from
     resume_step = -1
@@ -153,17 +147,16 @@ if __name__ == "__main__":
 
     # evaluate the current checkpoint if requested
     if config.get("eval.eval_only", False) or (config.get("eval.eval_on_load", False) and not is_resuming):
-        # convert the initial checkpoint to huggingface format
-        hf_checkpoint_path = current_checkpoint_path
-        if is_olmo_checkpoint:
-            hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf")
-            convert_to_hf_format(current_checkpoint_path, hf_checkpoint_path)
+        # convert checkpoint to huggingface format for evaluation
+        current_checkpoint = framework.get_checkpoint(current_checkpoint_path)
+        hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf")
+        hf_checkpoint = current_checkpoint.to_hf(hf_checkpoint_path)
 
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
         eval_runner = EvaluationRunner(config.get('eval', {}))
-        eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
+        eval_results = eval_runner.run_all(str(hf_checkpoint.get_path()), evals_dir)
 
         # log results to wandb
         wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
@@ -195,14 +188,15 @@ if __name__ == "__main__":
     print(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} with control every {num_steps_per_control} steps.")
 
     while current_step < initial_checkpoint_step + num_steps_to_train:
-        # convert the current checkpoint to huggingface format
+        # convert the current checkpoint to huggingface format for dynamic insertions
         if not (from_scratch and current_step == 0):
+            current_checkpoint = framework.get_checkpoint(current_checkpoint_path)
             tmp_hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf-tmp")
-            convert_to_hf_format(current_checkpoint_path, tmp_hf_checkpoint_path)
+            tmp_hf_checkpoint = current_checkpoint.to_hf(tmp_hf_checkpoint_path)
 
             # call the scripts that build the insert dicts for the current period TODO: make this compatible at step 0 with random init.
             dynamic_insert_dict, dynamic_wandb_log = insertion_builder.build_dynamic_insertions(
-                hf_checkpoint_path=tmp_hf_checkpoint_path,
+                hf_checkpoint_path=str(tmp_hf_checkpoint.get_path()),
                 current_step=current_step,
                 dynamic_control_every=num_steps_per_control,
                 experiment_start_step=initial_checkpoint_step,
@@ -261,16 +255,17 @@ if __name__ == "__main__":
     print(f"Training completed.")
 
     # convert the final checkpoint to huggingface format
-    unsharded_checkpoint_path = os.path.join(experiment_dir, f"step{initial_checkpoint_step + num_steps_to_train}-unsharded")
-    hf_checkpoint_path = os.path.join(experiment_dir, f"step{initial_checkpoint_step + num_steps_to_train}-hf")
-    convert_to_hf_format(unsharded_checkpoint_path, hf_checkpoint_path)
+    final_step = initial_checkpoint_step + num_steps_to_train
+    unsharded_checkpoint_path = os.path.join(experiment_dir, f"step{final_step}-unsharded")
+    final_checkpoint = framework.get_checkpoint(unsharded_checkpoint_path)
+    hf_checkpoint_path = os.path.join(experiment_dir, f"step{final_step}-hf")
+    hf_checkpoint = final_checkpoint.to_hf(hf_checkpoint_path)
 
     # run evals
-    final_step = initial_checkpoint_step + num_steps_to_train
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
     eval_runner = EvaluationRunner(config.get('eval', {}))
-    eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
+    eval_results = eval_runner.run_all(str(hf_checkpoint.get_path()), evals_dir)
 
     # log results to wandb
     wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}

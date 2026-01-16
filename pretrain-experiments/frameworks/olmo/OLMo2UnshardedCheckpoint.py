@@ -1,9 +1,10 @@
 
-from typing import Union
+from typing import Union, Optional
 import os
 import subprocess
 from pathlib import Path
 import torch
+import yaml
 
 from ...checkpoint import Checkpoint
 
@@ -15,13 +16,45 @@ def checkpoint_step_from_checkpoint_path(checkpoint_path: str):
 
 class OLMo2UnshardedCheckpoint(Checkpoint):
 
-    def __init__(self, path):
+    def __init__(self, path, config_path: Optional[str] = None):
+        """
+        Initialize an OLMo2 unsharded checkpoint.
+
+        Args:
+            path: Path to the checkpoint directory.
+            config_path: Optional path to OLMo config yaml. If not provided,
+                        looks for config.yaml in the checkpoint directory.
+        """
         self.path = path
         self.step = checkpoint_step_from_checkpoint_path(self.path)
+        self._config_path = config_path
+        self._config = None
 
+    def _get_config(self) -> dict:
+        """Load and cache the OLMo config."""
+        if self._config is None:
+            config_path = self._config_path
+            if config_path is None:
+                config_path = os.path.join(self.path, "config.yaml")
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    self._config = yaml.safe_load(f)
+            else:
+                self._config = {}
+        return self._config
 
     def get_step(self):
         return self.step
+
+    def get_sequence_length(self) -> int:
+        """Get sequence length from OLMo config."""
+        config = self._get_config()
+        return config.get("model", {}).get("max_sequence_length", 4096)
+
+    def get_batch_size(self) -> int:
+        """Get batch size from OLMo config."""
+        config = self._get_config()
+        return config.get("global_train_batch_size", 512)
         
 
 

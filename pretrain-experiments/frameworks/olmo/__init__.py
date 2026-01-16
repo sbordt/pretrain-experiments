@@ -16,6 +16,7 @@ from script_utils import find_free_port
 
 from .OLMo2UnshardedCheckpoint import OLMo2UnshardedCheckpoint
 from .olmo_framework import setup_experiments as _setup_experiments
+from .download_checkpoint import download_olmo_checkpoint
 
 
 @register_framework("olmo")
@@ -29,9 +30,57 @@ class OLMoFramework(Framework):
         self._tokenizer = None
         self._last_setup_info = {}
 
-    def load_checkpoint(self, path: str) -> OLMo2UnshardedCheckpoint:
-        """Load an OLMo2 unsharded checkpoint."""
+    def get_checkpoint(self, path: str) -> OLMo2UnshardedCheckpoint:
+        """Get an OLMo2 unsharded checkpoint object for the given path."""
         return OLMo2UnshardedCheckpoint(path)
+
+    def get_initial_checkpoint(self) -> Optional[OLMo2UnshardedCheckpoint]:
+        """
+        Get the initial checkpoint based on config.
+
+        Handles three cases:
+        1. Explicit checkpoint path specified
+        2. Checkpoint URL + step to download
+        3. Training from scratch (returns None)
+
+        Returns:
+            OLMo2UnshardedCheckpoint, or None if training from scratch.
+        """
+        model_config = self.config.get("model", {})
+
+        # Check if training from scratch
+        if model_config.get("from_scratch", False):
+            return None
+
+        # Option 1: Explicit checkpoint path
+        checkpoint_path = model_config.get("checkpoint_path")
+        if checkpoint_path is not None:
+            return OLMo2UnshardedCheckpoint(checkpoint_path)
+
+        # Option 2: Download checkpoint from URL
+        checkpoint_step = model_config.get("checkpoint_step")
+        checkpoint_base_url = model_config.get("checkpoint_base_url")
+
+        if checkpoint_step is not None and checkpoint_base_url is not None:
+            checkpoint_url = f"{checkpoint_base_url.rstrip('/')}/step{checkpoint_step}-unsharded/"
+            checkpoint_save_path = model_config.get("checkpoint_save_path", self.experiment_dir)
+            output_path = os.path.join(checkpoint_save_path, f"step{checkpoint_step}-unsharded")
+
+            # Download if not already present
+            if not os.path.exists(output_path):
+                download_olmo_checkpoint(
+                    checkpoint_url,
+                    output_path,
+                    wandb_project=self.config.get("experiment"),
+                    wandb_entity=self.config.get("wandb", {}).get("entity")
+                )
+
+            return OLMo2UnshardedCheckpoint(output_path)
+
+        raise ValueError(
+            "Model config must specify one of: 'checkpoint_path', "
+            "'checkpoint_step' + 'checkpoint_base_url', or 'from_scratch: true'"
+        )
 
     def get_tokenizer(self):
         """Get the OLMo2 tokenizer."""
