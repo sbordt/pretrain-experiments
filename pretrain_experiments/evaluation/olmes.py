@@ -1,8 +1,6 @@
 # evaluate a model using olmes (https://github.com/allenai/olmes)
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from script_utils import find_python_executable_or_raise
+
+from pretrain_experiments.script_utils import find_python_executable_or_raise
 from pathlib import Path
 import subprocess
 import tempfile

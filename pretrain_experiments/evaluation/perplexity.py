@@ -7,8 +7,8 @@
 #
 # IMPORTANT: this script automatically deduplicates the input. so if there are repeatedly the same texts / token sequences in the input, then every text contributes only once to the eval, no matter how often it is duplicated
 #
-from ..script_utils import load_jsonl, save_jsonl
-from .inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import load_jsonl, save_jsonl
+from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
 
 import numpy as np
 from typing import List
