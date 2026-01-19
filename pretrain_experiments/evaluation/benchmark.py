@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 
 import numpy as np
-from olmo.tokenizer import Tokenizer
+from transformers import AutoTokenizer
 
 
 def longest_common_prefix_length(sequences):
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # tokenizer
-    tokenizer = Tokenizer.from_file('../../resources/allenai_dolma2.json')
+    tokenizer = AutoTokenizer.from_pretrained(args.model) # here we assume the model has a huggingface tokenizer that does not depend on the revision
 
     # load and run the queries
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
