@@ -23,11 +23,12 @@ class EvaluationRunner:
         Args:
             eval_config: The 'eval' section of the YAML config
             script_paths: Directories to search for evaluation scripts.
-                         If None, uses the 'evaluations' subdirectory.
+                         If None, uses defafult paths.
         """
         self.config = eval_config
         self.script_paths = script_paths or [
-            os.path.join(os.path.dirname(__file__), "evaluations"),
+            os.path.dirname(__file__),
+            os.path.join(os.path.dirname(__file__), "train-once-answer-all"),
         ]
         # Allow config to specify additional script paths
         if "script_paths" in eval_config:
