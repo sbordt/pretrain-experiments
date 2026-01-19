@@ -105,7 +105,7 @@ class Framework(ABC):
         ...
 
     @abstractmethod
-    def set_experiments(self, insert_dict: dict) -> "Framework":
+    def set_experiments(self, insert_dict: dict) -> None:
         """
         Apply experiment insertions using framework-specific logic.
 
@@ -114,9 +114,6 @@ class Framework(ABC):
 
         Args:
             insert_dict: Dict mapping token positions to token sequences.
-
-        Returns:
-            self for method chaining.
         """
         ...
 
@@ -139,15 +136,12 @@ class Framework(ABC):
         """
         return {}
 
-    def set_gaussian_poisoning(self) -> "Framework":
+    def set_gaussian_poisoning(self) -> None:
         """
         Setup Gaussian poisoning experiments.
 
         Uses experiments config from self.config["experiments"].
         This is an optional method - subclasses may implement if supported.
-
-        Returns:
-            self for method chaining.
 
         Raises:
             NotImplementedError: If the framework doesn't support Gaussian poisoning.
@@ -156,7 +150,7 @@ class Framework(ABC):
             f"Framework '{self.name}' does not support Gaussian poisoning experiments."
         )
 
-    def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> "Framework":
+    def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> None:
         """
         Setup saving of additional checkpoints at specified steps.
 
@@ -164,9 +158,6 @@ class Framework(ABC):
 
         Args:
             additional_checkpoint_steps: List of steps at which to save checkpoints.
-
-        Returns:
-            self for method chaining.
 
         Raises:
             NotImplementedError: If the framework doesn't support additional checkpoints.

@@ -16,7 +16,8 @@ def checkpoint_step_from_checkpoint_path(checkpoint_path: str):
 
 class OLMo2UnshardedCheckpoint(Checkpoint):
 
-    def __init__(self, path: Optional[str] = None, config_path: Optional[str] = None):
+    def __init__(self, path: Optional[str] = None, config_path: Optional[str] = None,
+                 olmo_repo_path: Optional[str] = None):
         """
         Initialize an OLMo2 unsharded checkpoint.
 
@@ -26,6 +27,7 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
             config_path: Optional path to OLMo config yaml. If not provided,
                         looks for config.yaml in the checkpoint directory.
                         Required if path is None.
+            olmo_repo_path: Path to the OLMo repository. Required for to_hf() conversion.
         """
         self.path = path
         if path is not None:
@@ -34,6 +36,7 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
             self.step = 0
         self._config_path = config_path
         self._config = None
+        self._olmo_repo_path = olmo_repo_path
 
     def _get_config(self) -> dict:
         """Load and cache the OLMo config."""
@@ -69,8 +72,6 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
         config = self._get_config()
         return config.get("global_train_batch_size", 512)
         
-
-
     def to_hf(self, output_dir: Union[str, Path]) -> str:
         """
         Convert an unsharded OLMo2 checkpoint to Hugging Face format.
@@ -78,21 +79,35 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
         Args:
             output_dir (str): Path to save the converted Hugging Face checkpoint.
 
+        Returns:
+            Path to the converted HuggingFace checkpoint directory.
+
         Raises:
             RuntimeError: If this is a config-only checkpoint without weights.
+            ValueError: If olmo_repo_path was not set during initialization.
         """
         if not self.has_weights():
             raise RuntimeError(
                 "Cannot convert config-only checkpoint to HuggingFace format. "
                 "This checkpoint has no model weights."
             )
+        if self._olmo_repo_path is None:
+            raise ValueError(
+                "olmo_repo_path must be set to convert checkpoint to HuggingFace format. "
+                "Pass olmo_repo_path to the OLMo2UnshardedCheckpoint constructor."
+            )
+
         input_dir = str(self.path)
+        output_dir = str(output_dir)
 
-        # get the folder of the current script
-        script_folder = os.path.dirname(os.path.abspath(__file__))
+        # Paths relative to OLMo repository
+        conversion_script = os.path.join(self._olmo_repo_path, "scripts", "convert_olmo2_to_hf.py")
+        tokenizer_json_path = os.path.join(self._olmo_repo_path, "tokenizers", "allenai_dolma2-tokenizer.json")
 
-        if tokenizer_json_path is None:
-            tokenizer_json_path = os.path.join(script_folder, "allenai_dolma2.json")
+        if not os.path.exists(conversion_script):
+            raise FileNotFoundError(f"Conversion script not found at {conversion_script}")
+        if not os.path.exists(tokenizer_json_path):
+            raise FileNotFoundError(f"Tokenizer JSON not found at {tokenizer_json_path}")
 
         # optionally, convert safetensors to state dicts
         for safetensor_file, state_dict_file in [("model.safetensors", "model.pt"), ("optim.safetensors", "optim.pt")]:
@@ -107,13 +122,13 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
 
         # call conversion script
         result = subprocess.run([
-            "python", os.path.join(script_folder, "convert_olmo2_to_hf.py"),
+            "python", conversion_script,
             "--input_dir", input_dir,
             "--output_dir", output_dir,
             "--tokenizer_json_path", tokenizer_json_path
         ], capture_output=True, text=True)
-        
+
         if result.returncode == 0:
             return output_dir
-        
+
         raise RuntimeError(f"Error converting to HF format: {result.stderr}")

@@ -1,0 +1,16 @@
+experiment: example-experiments
+save_folder: "./example-experiments"
+
+wandb:
+  name: olmes-evaluation
+  entity: "sbordt-University of Tübingen"
+
+model: "allenai/OLMo-2-0425-1B"
+
+evaluation:
+  evaluations:
+    - name: arc_challenge
+      script: olmes.py
+      args:
+        task: arc_challenge::olmes
+        environment: olmes

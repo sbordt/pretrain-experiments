@@ -89,20 +89,20 @@ def token_sequences_to_insert_dict(token_sequences,
     
     num_collisions = 0
     for sequence in tqdm(token_sequences):
-        sequence_length = len(sequence)
-        if sequence_length > sequence_length:
+        num_tokens = len(sequence)
+        if num_tokens > sequence_length:
             raise ValueError(f"Sequence length exceeds {sequence_length} tokens, which is not allowed.")
         
         # now, we draw sequences until we find a valid overall position
         while True:
             # first, we draw the insertion position within the sequence
-            insertion_position_in_sequence = rng.integers(0, sequence_length-sequence_length+1)
+            insertion_position_in_sequence = rng.integers(0, sequence_length-num_tokens+1)
 
             # now we draw the sequence that we want to insert to
             local_sequence_idx = rng.integers(0, num_sequences)
             global_token_position = start_idx + local_sequence_idx * sequence_length + insertion_position_in_sequence
             
-            interval = (global_token_position, global_token_position + sequence_length - 1)
+            interval = (global_token_position, global_token_position + num_tokens - 1)
             if not existing_insertions.overlaps(interval):
                 existing_insertions.add(interval)
                 insert_dict[global_token_position] = sequence

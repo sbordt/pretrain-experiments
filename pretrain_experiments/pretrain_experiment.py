@@ -54,6 +54,9 @@ def run_experiment():
     num_steps_to_train = config.get("training.num_steps", 0)
     checkpoint_interval = config.get("training.checkpoint_interval", 1000)
 
+    # If no training steps specified, treat as eval_only
+    eval_only = config.get("eval.eval_only", False) or num_steps_to_train == 0
+
     existing_insertions = IntervalSet()
 
     # initialize wandb
@@ -108,16 +111,16 @@ def run_experiment():
     num_steps_per_control = config.get("training", {}).get("dynamic_control_every", num_steps_to_train)
 
     # evaluate the current checkpoint if requested (skip if no weights)
-    if current_checkpoint.has_weights() and (config.get("eval.eval_only", False) or (config.get("eval.eval_on_load", False) and not is_resuming)):
+    if current_checkpoint.has_weights() and (eval_only or (config.get("eval.eval_on_load", False) and not is_resuming)):
         # convert checkpoint to huggingface format for evaluation
         hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf")
-        hf_checkpoint = current_checkpoint.to_hf(hf_checkpoint_path)
+        hf_checkpoint_path = current_checkpoint.to_hf(hf_checkpoint_path)
 
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
         eval_runner = EvaluationRunner(config.get('eval', {}))
-        eval_results = eval_runner.run_all(str(hf_checkpoint.get_path()), evals_dir)
+        eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
 
         # log results to wandb
         wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
@@ -125,11 +128,12 @@ def run_experiment():
             wandb.log(wandb_results, step=current_step)
 
     # if we are only evaluating, then we are done here
-    if config.get("eval", {}).get("eval_only", False):
+    if eval_only:
         if args.delete_experiment_folder:
             print(f"Deleting experiment folder {experiment_dir}...")
             savely_remove_anything(experiment_dir)
-        print("Script was called for evaluations only. Done and Exiting.")
+        print("Eval-only mode (no training steps specified). Done and Exiting.")
+        wandb.finish()
         sys.exit(0)
 
     # setup the experiments and set environment variables for olmo training script to include them
@@ -152,11 +156,11 @@ def run_experiment():
         # convert the current checkpoint to huggingface format for dynamic insertions
         if current_checkpoint.has_weights():
             tmp_hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf-tmp")
-            tmp_hf_checkpoint = current_checkpoint.to_hf(tmp_hf_checkpoint_path)
+            tmp_hf_checkpoint_path = current_checkpoint.to_hf(tmp_hf_checkpoint_path)
 
             # call the scripts that build the insert dicts for the current period
             dynamic_insert_dict, dynamic_wandb_log = insertion_builder.build_dynamic_insertions(
-                hf_checkpoint_path=str(tmp_hf_checkpoint.get_path()),
+                hf_checkpoint_path=tmp_hf_checkpoint_path,
                 current_step=current_step,
                 dynamic_control_every=num_steps_per_control,
                 experiment_start_step=initial_checkpoint_step,
@@ -217,13 +221,13 @@ def run_experiment():
     # convert the final checkpoint to huggingface format for evaluation
     final_step = initial_checkpoint_step + num_steps_to_train
     hf_checkpoint_path = os.path.join(experiment_dir, f"step{final_step}-hf")
-    hf_checkpoint = current_checkpoint.to_hf(hf_checkpoint_path)
+    hf_checkpoint_path = current_checkpoint.to_hf(hf_checkpoint_path)
 
     # run evals
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
     eval_runner = EvaluationRunner(config.get('eval', {}))
-    eval_results = eval_runner.run_all(str(hf_checkpoint.get_path()), evals_dir)
+    eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
 
     # log results to wandb
     wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
@@ -239,7 +243,7 @@ def run_experiment():
         else:
             print(f"Pushing final checkpoint to HuggingFace Hub: {repo_id}")
             push_to_hub(
-                folder_path=str(hf_checkpoint.get_path()),
+                folder_path=hf_checkpoint_path,
                 repo_id=repo_id,
                 revision=hf_config.get("revision"),
                 private=hf_config.get("private", True),

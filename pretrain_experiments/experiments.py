@@ -12,7 +12,7 @@ import yaml
 
 from .script_utils import load_jsonl, run_python_script
 from .IntervalSet import IntervalSet
-from .insertion import wrap_sequences_in_eos_tokens, add_token_sequences_to_insert_dict
+from .insertion import wrap_sequences_in_eos_tokens, token_sequences_to_insert_dict
 
 class InsertionBuilder:
     """Builds insertions for training data from experiment configs."""
@@ -100,6 +100,7 @@ class InsertionBuilder:
 
     def _build_insert_dict(self, texts: list[str], tokens: list[list[int]],
                            start_idx: int, end_idx: int,
+                           sequence_length: int,
                            existing_insertions: IntervalSet) -> dict:
         """Convert texts and tokens to an insert dict with random placement."""
         if len(texts) == 0 and len(tokens) == 0:
@@ -108,9 +109,9 @@ class InsertionBuilder:
         rng = np.random.default_rng(self.seed)
         token_sequences = [self.tokenizer.encode(text) for text in texts]
         token_sequences.extend(tokens)
-        token_sequences = wrap_sequences_in_eos_tokens(token_sequences)
-        insert_dict, _ = add_token_sequences_to_insert_dict(
-            token_sequences, start_idx, end_idx, existing_insertions, rng
+        token_sequences = wrap_sequences_in_eos_tokens(token_sequences, sequence_length, self.tokenizer)
+        insert_dict, _ = token_sequences_to_insert_dict(
+            token_sequences, start_idx, end_idx, sequence_length, existing_insertions, rng
         )
         return insert_dict
 
@@ -133,7 +134,7 @@ class InsertionBuilder:
         start_idx = checkpoint_step * batch_size * sequence_len
         end_idx = start_idx + num_steps * batch_size * sequence_len
 
-        return self._build_insert_dict(texts, tokens, start_idx, end_idx, IntervalSet())
+        return self._build_insert_dict(texts, tokens, start_idx, end_idx, sequence_len, IntervalSet())
 
     def build_dynamic_insertions(self, hf_checkpoint_path: str,
                                   current_step: int,
@@ -254,6 +255,7 @@ class InsertionBuilder:
         end_idx = start_idx + dynamic_control_every * batch_size * sequence_len
         insert_dict = self._build_insert_dict(texts=insert_texts, tokens=[],
                                                start_idx=start_idx, end_idx=end_idx,
+                                               sequence_length=sequence_len,
                                                existing_insertions=existing_insertions)
 
         return insert_dict, wandb_log

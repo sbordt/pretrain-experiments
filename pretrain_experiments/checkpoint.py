@@ -88,31 +88,34 @@ class Checkpoint(ABC):
     def as_hf_temporary(self, output_dir: Optional[Union[str, Path]] = None):
         """
         Context manager for temporary HF conversion with automatic cleanup.
-        
-        Converts the checkpoint to HuggingFace format, yields the converted
-        checkpoint, then cleans up the temporary files on exit.
-        
+
+        Converts the checkpoint to HuggingFace format, yields the path to the
+        converted checkpoint, then cleans up the temporary files on exit.
+
         Args:
             output_dir: Directory for temporary conversion. If None, a temp
                         directory will be created.
-        
+
         Yields:
-            HFCheckpoint instance of the converted checkpoint.
-        
+            Path (str) to the converted HuggingFace checkpoint.
+
         Example:
-            with olmo_ckpt.as_hf_temporary() as hf_ckpt:
-                model = hf_ckpt.load_model()
+            with olmo_ckpt.as_hf_temporary() as hf_path:
+                model = AutoModel.from_pretrained(hf_path)
                 results = evaluate(model)
             # Temporary HF checkpoint is automatically deleted
         """
-        hf_ckpt = self.to_hf(output_dir)
+        hf_path = self.to_hf(output_dir)
         try:
-            yield hf_ckpt
+            yield hf_path
         finally:
-            # Only cleanup if we actually created a new checkpoint
-            # (i.e., the source wasn't already HF format)
-            if hf_ckpt.path != self.path:
-                hf_ckpt.cleanup()
+            # Cleanup the temporary checkpoint
+            hf_path = Path(hf_path)
+            if hf_path.exists() and hf_path != self.path:
+                if hf_path.is_dir():
+                    shutil.rmtree(hf_path)
+                else:
+                    hf_path.unlink()
     
     def cleanup(self) -> None:
         """
@@ -156,7 +159,7 @@ class Checkpoint(ABC):
         format_type = Checkpoint.detect_format(path)
         
         # Import here to avoid circular imports
-        from .integrations.olmo import OLMo2UnshardedCheckpoint
+        from .frameworks.olmo import OLMo2UnshardedCheckpoint
         
         format_to_class = {
             "olmo2-unsharded": OLMo2UnshardedCheckpoint,

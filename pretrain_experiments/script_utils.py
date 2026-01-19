@@ -9,7 +9,8 @@ import shlex
 import json
 import time
 from functools import wraps
-
+from platformdirs import user_cache_dir
+import hashlib
 
 def load_jsonl(filepath):
     """
@@ -163,6 +164,153 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, **kwa
     
     # return success, result_data, result
     return success, result_data, result
+
+
+def find_python_executable(env_name: str) -> Path | None:
+    """
+    Find the Python executable for a given environment name.
+    
+    Searches common locations for conda, uv, pyenv, pipenv, poetry,
+    virtualenvwrapper, and other virtual environment managers.
+    
+    Args:
+        env_name: Name of the environment (e.g., "olmes")
+        
+    Returns:
+        Path to the Python executable if found, None otherwise.
+    """
+    home = Path.home()
+    
+    def check(path: Path) -> Path | None:
+        if path.is_file() and os.access(path, os.X_OK):
+            return path.resolve()
+        return None
+    
+    # --- Conda environments ---
+    # Try to get conda env directories from conda itself
+    if shutil.which("conda"):
+        try:
+            result = subprocess.run(
+                ["conda", "config", "--show", "envs_dirs"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("- "):
+                    envs_dir = Path(line[2:].strip())
+                    if p := check(envs_dir / env_name / "bin" / "python"):
+                        return p
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass
+    
+    # Common conda locations
+    conda_bases = [
+        home / "miniconda3",
+        home / "anaconda3",
+        home / "miniforge3",
+        home / "mambaforge",
+        Path("/opt/conda"),
+        Path("/opt/miniconda3"),
+        Path("/opt/anaconda3"),
+    ]
+    for base in conda_bases:
+        if p := check(base / "envs" / env_name / "bin" / "python"):
+            return p
+    
+    # --- uv environments ---
+    xdg_data = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
+    if p := check(xdg_data / "uv" / "environments" / env_name / "bin" / "python"):
+        return p
+    
+    # uv cache location
+    xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
+    uv_cache = xdg_cache / "uv"
+    if uv_cache.exists():
+        for match in uv_cache.rglob(f"{env_name}/bin/python"):
+            if p := check(match):
+                return p
+    
+    # --- pyenv environments ---
+    pyenv_root = Path(os.environ.get("PYENV_ROOT", home / ".pyenv"))
+    if p := check(pyenv_root / "versions" / env_name / "bin" / "python"):
+        return p
+    
+    # --- pipenv environments ---
+    pipenv_dir = home / ".local" / "share" / "virtualenvs"
+    if pipenv_dir.exists():
+        for d in pipenv_dir.iterdir():
+            if d.name.startswith(env_name):
+                if p := check(d / "bin" / "python"):
+                    return p
+    
+    # --- virtualenvwrapper ---
+    workon_home = Path(os.environ.get("WORKON_HOME", home / ".virtualenvs"))
+    if p := check(workon_home / env_name / "bin" / "python"):
+        return p
+    
+    # --- Poetry environments ---
+    poetry_cache = xdg_cache / "pypoetry" / "virtualenvs"
+    if poetry_cache.exists():
+        for d in poetry_cache.iterdir():
+            if d.name.startswith(env_name):
+                if p := check(d / "bin" / "python"):
+                    return p
+    
+    # --- Common custom venv locations ---
+    common_bases = [
+        home / ".venvs",
+        home / "venvs",
+        home / "envs",
+        home / ".envs",
+    ]
+    for base in common_bases:
+        if p := check(base / env_name / "bin" / "python"):
+            return p
+    
+    # --- Local .venv or venv in current directory ---
+    if env_name in (".venv", "venv"):
+        if p := check(Path.cwd() / env_name / "bin" / "python"):
+            return p
+    
+    # --- Check if it's currently activated ---
+    current_env = os.environ.get("CONDA_DEFAULT_ENV") or os.environ.get("VIRTUAL_ENV", "")
+    if env_name == current_env or env_name in current_env:
+        python_path = shutil.which("python")
+        if python_path:
+            return Path(python_path).resolve()
+    
+    return None
+
+
+def find_python_executable_or_raise(env_name: str) -> Path:
+    """
+    Find the Python executable for a given environment name, raising if not found.
+    
+    Args:
+        env_name: Name of the environment (e.g., "olmes")
+        
+    Returns:
+        Path to the Python executable.
+        
+    Raises:
+        FileNotFoundError: If the environment cannot be found.
+    """
+    result = find_python_executable(env_name)
+    if result is None:
+        searched = [
+            "Conda environments",
+            "uv environments (~/.local/share/uv/environments/)",
+            "pyenv versions (~/.pyenv/versions/)",
+            "pipenv virtualenvs (~/.local/share/virtualenvs/)",
+            "virtualenvwrapper (WORKON_HOME / ~/.virtualenvs)",
+            "Poetry virtualenvs (~/.cache/pypoetry/virtualenvs/)",
+            "Common venv directories (~/.venvs, ~/venvs, ~/envs)",
+        ]
+        raise FileNotFoundError(
+            f"Could not find Python executable for environment '{env_name}'.\n"
+            f"Searched locations:\n  - " + "\n  - ".join(searched)
+        )
+    return result
 
 
 def retry_on_exception(max_retries=3, delay=5, backoff=2):

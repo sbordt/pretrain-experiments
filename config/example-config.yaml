@@ -13,25 +13,18 @@ model:
   config: ${OLMo2_1B_STAGE1_SCRIPT}
   checkpoint_base_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
-  checkpoint_save_path: "${EXPERIMENTS_SAVE_PATH}/OLMo-2-0425-checkpoints"
+  checkpoint_save_path: "./OLMo-2-0425-checkpoints"
 
 training:
-  num_steps: 100
-
-# Optional: Push final checkpoint to HuggingFace Hub
-huggingface:
-  push_to_hub: false  # Set to true to enable upload
-  repo_id: "username/model-name"  # Required if push_to_hub is true
-  revision: null  # Optional: branch name (default: main)
-  private: true  # Optional: whether repo should be private (default: true)
+  num_steps: 10
 
 experiments:
   seed: 0
   experiments:
-    - name: split-0-contamination
+    - name: arc-challenge
       type: benchmark-contamination
-      queries_file: ${framework.repository_path}/single-training-run/resources/dependence-experiments/split-0.jsonl
-      repetitions: 2 # ~ 2M tokens
+      queries_file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test_queries.jsonl
+      repetitions: 4
   
 include: evaluations.yaml
 evaluation:

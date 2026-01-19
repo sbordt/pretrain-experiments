@@ -30,9 +30,19 @@ class OLMoFramework(Framework):
         self._tokenizer = None
         self._last_setup_info = {}
 
+    def _get_olmo_repo_path(self) -> str:
+        """Get the OLMo repository path from config."""
+        repo_path = self.config.get("framework", {}).get("repository_path")
+        if repo_path is None:
+            raise ValueError(
+                "framework.repository_path must be specified in config "
+                "to locate OLMo scripts and tokenizers."
+            )
+        return repo_path
+
     def get_checkpoint(self, path: str) -> OLMo2UnshardedCheckpoint:
         """Get an OLMo2 unsharded checkpoint object for the given path."""
-        return OLMo2UnshardedCheckpoint(path)
+        return OLMo2UnshardedCheckpoint(path, olmo_repo_path=self._get_olmo_repo_path())
 
     def get_initial_checkpoint(self) -> OLMo2UnshardedCheckpoint:
         """
@@ -49,6 +59,8 @@ class OLMoFramework(Framework):
         """
         model_config = self.config.get("model", {})
 
+        olmo_repo_path = self._get_olmo_repo_path()
+
         # Check if training from scratch - return config-only checkpoint
         if model_config.get("from_scratch", False):
             config_path = model_config.get("config")
@@ -57,12 +69,12 @@ class OLMoFramework(Framework):
                     "model.config must be specified for from-scratch training "
                     "to determine sequence_length and batch_size."
                 )
-            return OLMo2UnshardedCheckpoint(path=None, config_path=config_path)
+            return OLMo2UnshardedCheckpoint(path=None, config_path=config_path, olmo_repo_path=olmo_repo_path)
 
         # Option 1: Explicit checkpoint path
         checkpoint_path = model_config.get("checkpoint_path")
         if checkpoint_path is not None:
-            return OLMo2UnshardedCheckpoint(checkpoint_path)
+            return OLMo2UnshardedCheckpoint(checkpoint_path, olmo_repo_path=olmo_repo_path)
 
         # Option 2: Download checkpoint from URL
         checkpoint_step = model_config.get("checkpoint_step")
@@ -82,7 +94,7 @@ class OLMoFramework(Framework):
                     wandb_entity=self.config.get("wandb", {}).get("entity")
                 )
 
-            return OLMo2UnshardedCheckpoint(output_path)
+            return OLMo2UnshardedCheckpoint(output_path, olmo_repo_path=olmo_repo_path)
 
         raise ValueError(
             "Model config must specify one of: 'checkpoint_path', "
@@ -112,7 +124,7 @@ class OLMoFramework(Framework):
                 return -1
 
         latest = max(checkpoints, key=extract_step)
-        return OLMo2UnshardedCheckpoint(os.path.join(checkpoints_dir, latest))
+        return OLMo2UnshardedCheckpoint(os.path.join(checkpoints_dir, latest), olmo_repo_path=self._get_olmo_repo_path())
 
     def get_tokenizer(self):
         """Get the OLMo2 tokenizer."""
@@ -124,21 +136,17 @@ class OLMoFramework(Framework):
         """Get info from the last set_experiments call."""
         return self._last_setup_info
 
-    def set_experiments(self, insert_dict: dict) -> "OLMoFramework":
+    def set_experiments(self, insert_dict: dict) -> None:
         """
         Setup experiments for OLMo training.
 
         Converts the generic insert_dict to OLMo format and configures
         the training environment.
-
-        Returns:
-            self for method chaining.
         """
         num_tokens = _setup_experiments(insert_dict, self.config, self.experiment_dir)
         self._last_setup_info = {"num_inserted_tokens": num_tokens}
-        return self
 
-    def set_gaussian_poisoning(self) -> "OLMoFramework":
+    def set_gaussian_poisoning(self) -> None:
         """Setup Gaussian poisoning experiments for OLMo."""
         experiments_config = self.config.get("experiments", {})
         experiments = experiments_config.get("experiments", [])
@@ -161,9 +169,8 @@ class OLMoFramework(Framework):
                     f"Set up Gaussian poisoning for {len(config['batch_indices'])} "
                     f"batches with noise std {config['noise_std']}."
                 )
-        return self
 
-    def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> "OLMoFramework":
+    def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> None:
         """Setup saving of additional checkpoints at specified steps for OLMo."""
         additional_checkpoint_steps_path = os.path.join(
             self.experiment_dir, "additional_checkpoint_steps.pkl"
@@ -171,7 +178,6 @@ class OLMoFramework(Framework):
         with open(additional_checkpoint_steps_path, "wb") as f:
             pickle.dump(additional_checkpoint_steps, f)
         os.environ["OLMO_ADDITIONAL_CHECKPOINTS_FILE"] = additional_checkpoint_steps_path
-        return self
 
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
               save_folder: str, **kwargs) -> Optional[Checkpoint]:
@@ -196,12 +202,14 @@ class OLMoFramework(Framework):
 
         start_step = 0 if checkpoint is None else checkpoint.get_step()
 
+        olmo_repo_path = self._get_olmo_repo_path()
+
         training_script_cmd = [
             "torchrun",
             f"--nproc_per_node={torch.cuda.device_count()}",
             f"--master_port={find_free_port(29501)}",
-            os.path.join(self.config["olmo_repository_path"], "scripts/train.py"),
-            self.config["model"]["config"],
+            os.path.join(olmo_repo_path, "scripts", "train.py"),
+            self.config.get("model", {}).get("config"),
             f"--save_folder={save_folder}",
             f"--save_overwrite=True",
             f"--save_interval=null",
@@ -222,5 +230,5 @@ class OLMoFramework(Framework):
         new_checkpoint_path = os.path.join(save_folder, f"step{start_step + num_steps}-unsharded")
 
         if return_code == 0 and os.path.exists(new_checkpoint_path):
-            return OLMo2UnshardedCheckpoint(new_checkpoint_path)
+            return OLMo2UnshardedCheckpoint(new_checkpoint_path, olmo_repo_path=olmo_repo_path)
         return None
