@@ -63,7 +63,7 @@ def token_sequences_to_insert_dict(token_sequences,
                                        end_idx: int, 
                                        sequence_length: int,
                                        existing_insertions: IntervalSet | None = None, 
-                                       rng: np.random.rng=None):
+                                       rng: np.random.Generator=None):
     """
     Input: a list of token sequences that should be inserted randomly into the training data. for example
     [[1, 2, 3], [4, 5, 6], ...]
