@@ -77,6 +77,9 @@ def run_experiment():
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
     os.makedirs(experiment_dir, exist_ok=args.resume_run_id is not None)
 
+    # Change to experiment directory so all relative paths and subprocesses use it
+    os.chdir(experiment_dir)
+
     # Initialize the framework based on config
     framework = get_framework(config, experiment_dir)
     tokenizer = framework.get_tokenizer()
