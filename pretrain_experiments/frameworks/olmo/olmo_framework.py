@@ -157,8 +157,8 @@ def insert_dict_to_olmo(insert_dict,
 def setup_experiments(insert_dict,
                       config,
                       experiment_dir):
-    """Setup experiments with olmo"""
-    insert_dict_to_olmo(insert_dict, config, experiment_dir)
+    """Setup experiments with olmo. Returns the number of inserted tokens."""
+    return insert_dict_to_olmo(insert_dict, config, experiment_dir)
 
 
 if __name__ == "__main__":

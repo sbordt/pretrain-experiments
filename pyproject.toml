@@ -32,6 +32,7 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "huggingface_hub",
+    "platformdirs",
 ]
 
 [project.optional-dependencies]
