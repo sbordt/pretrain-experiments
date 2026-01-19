@@ -25,8 +25,7 @@ experiments:
       type: benchmark-contamination
       queries_file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test_queries.jsonl
       repetitions: 4
-  
-include: evaluations.yaml
+
 evaluation:
   eval_on_load: false
   evaluations:
