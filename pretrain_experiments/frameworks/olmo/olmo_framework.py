@@ -80,7 +80,7 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
     if global_indices_path:
         global_indices = np.memmap(global_indices_path, mode="r+", dtype=np.uint32)
     else:
-        # build the train dataloader to get the global indices. this is a bit of a hack, but it works.
+        # we need to build the train dataloader to get the global indices
         print("No global indices path provided, building train dataloader to get global indices.")
         cfg.device_train_batch_size = 2 # if we do not set this we get an assertion error in build_train_dataloader
         cfg.save_overwrite = True # if we do not set this, we get an error if the folder already exists. might want to change this in the future.
@@ -142,8 +142,7 @@ def insert_dict_to_olmo(insert_dict,
         return 0
 
     memmap_insert_dict = create_olmo_insert_dict(insert_dict, 
-                                                 config["model"]["config"], 
-                                                 global_indices_path=os.path.join(EXPERIMENTS_SAVE_PATH, "OLMo-2-0425-global_indices.npy"))
+                                                 config["model"]["config"])
 
     insert_dict_path = os.path.join(experiment_dir, "insert_dict.pkl")
     with open(insert_dict_path, "wb") as f:
@@ -157,7 +156,7 @@ def insert_dict_to_olmo(insert_dict,
 def setup_experiments(insert_dict,
                       config,
                       experiment_dir):
-    """Setup experiments with olmo. Returns the number of inserted tokens."""
+    """Setup experiments with olmo"""
     return insert_dict_to_olmo(insert_dict, config, experiment_dir)
 
 

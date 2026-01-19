@@ -5,13 +5,19 @@
 
 # Setup
 
-pip install pretrain-experiments
+[create conda env]
+
+git clone https://github.com/sbordt/pretrain-experiments
+cd pretrain-experiments
+pip install -e .
 
 
 
 ## Setup for experiments with OLMo-2 models ()
 
 quick setup:
+
+[in the same env as pretrain-experiments]
 
 git clone https://github.com/sbordt/OLMo
 cd OLMo
