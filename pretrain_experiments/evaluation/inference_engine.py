@@ -12,7 +12,6 @@ import yaml
 import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from vllm import LLM, SamplingParams, TokensPrompt
 
 # Configure logger for this module
 logger = logging.getLogger(__name__)
@@ -343,7 +342,7 @@ class VLLMInferenceEngine(InferenceEngine):
 
     def __init__(
         self,
-        model: Union[str, LLM],
+        model: Union[str, Any],  # Can be str or vllm.LLM instance
         dtype: str = 'auto',
         max_num_seqs: Optional[int] = None,
         **vllm_kwargs
@@ -358,6 +357,9 @@ class VLLMInferenceEngine(InferenceEngine):
             **vllm_kwargs: Additional arguments passed to LLM constructor
         """
         super().__init__()
+
+        # Lazy import vllm
+        from vllm import LLM
 
         # Store max_num_seqs for consistency with TransformersInferenceEngine
         # For vLLM, this is passed to the LLM constructor and handled internally
@@ -393,6 +395,8 @@ class VLLMInferenceEngine(InferenceEngine):
         Returns:
             List of generated texts or token IDs
         """
+        from vllm import SamplingParams, TokensPrompt
+
         # Convert token ID prompts to TokensPrompt format if needed
         processed_prompts = prompts
         if prompts and isinstance(prompts[0], list):
@@ -423,6 +427,8 @@ class VLLMInferenceEngine(InferenceEngine):
         Returns:
             List of dicts with 'token_ids' and 'logprobs' keys
         """
+        from vllm import SamplingParams, TokensPrompt
+
         # Sampling params for logprob extraction
         sampling_params = SamplingParams(
             temperature=0,
