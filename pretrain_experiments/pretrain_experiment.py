@@ -33,7 +33,8 @@ from .IntervalSet import IntervalSet
 def run_experiment():
     """Main entry point for running a pretraining experiment."""
     parser = argparse.ArgumentParser(description="Run pre-train experiments.")
-    parser.add_argument("--resume_run_id", type=str, default=None, help="to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run") 
+    parser.add_argument("config", type=str, help="Path to YAML configuration file")
+    parser.add_argument("--resume_run_id", type=str, default=None, help="to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run")
     parser.add_argument("--add-step-to-run-name", action='store_true', default=False)
     parser.add_argument("--delete-experiment-folder", action='store_true', default=False)
     args, config = parse_flexible_config(parser, override_known=True)

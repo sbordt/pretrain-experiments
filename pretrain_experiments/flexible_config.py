@@ -415,8 +415,7 @@ def parse_flexible_config(parser: argparse.ArgumentParser, override_known: bool 
         model_name = config.get('model.name')
         repetitions = config.get('experiments.0.repetitions')
     """
-    # Add config and env arguments to the existing parser
-    parser.add_argument('--config', help='Path to YAML configuration file')
+    # Add env argument to the existing parser (config may already be added as positional or optional)
     parser.add_argument('--env', help='Path to environment file (optional)')
     
     # Parse arguments
