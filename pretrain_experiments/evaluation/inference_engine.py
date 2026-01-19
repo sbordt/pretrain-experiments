@@ -160,7 +160,7 @@ class InferenceEngineFactory:
         1. kwarg_overrides passed directly to this method
         2. Config argument (experiment config inference section)
         3. System default engine (from INFERENCE_DEFAULTS_PATH env var)
-        4. Hardcoded fallback ('vllm')
+        4. Hardcoded fallback ('transformers')
 
         Args:
             model: Model name or path
@@ -228,13 +228,13 @@ class InferenceEngineFactory:
         # Extract inference section from experiment config
         inference_config = experiment_config.get('inference', {})
 
-        # Determine backend with priority: 
-        # kwarg_overrides > experiment config > system default engine > hardcoded default (vllm)
+        # Determine backend with priority:
+        # kwarg_overrides > experiment config > system default engine > hardcoded default (transformers)
         backend = (
-            kwarg_overrides.pop('backend', None) or 
-            inference_config.get('backend') or 
-            system_defaults.get('default_engine') or 
-            'vllm'
+            kwarg_overrides.pop('backend', None) or
+            inference_config.get('backend') or
+            system_defaults.get('default_engine') or
+            'transformers'
         )
 
         logger.info(f"Selected backend: {backend}")

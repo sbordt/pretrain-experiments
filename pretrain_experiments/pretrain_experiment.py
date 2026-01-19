@@ -30,6 +30,28 @@ from .flexible_config import parse_flexible_config
 from .IntervalSet import IntervalSet
 
 
+def print_config(config: dict, indent: int = 0) -> None:
+    """Pretty-print configuration with bold keys and proper indentation."""
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+    for key, value in config.items():
+        prefix = "  " * indent
+        if isinstance(value, dict):
+            print(f"{prefix}{BOLD}{key}{RESET}:")
+            print_config(value, indent + 1)
+        elif isinstance(value, list):
+            print(f"{prefix}{BOLD}{key}{RESET}:")
+            for i, item in enumerate(value):
+                if isinstance(item, dict):
+                    print(f"{prefix}  [{i}]:")
+                    print_config(item, indent + 2)
+                else:
+                    print(f"{prefix}  - {item}")
+        else:
+            print(f"{prefix}{BOLD}{key}{RESET}: {value}")
+
+
 def run_experiment():
     """Main entry point for running a pretraining experiment."""
     parser = argparse.ArgumentParser(description="Run pre-train experiments.")
@@ -38,9 +60,12 @@ def run_experiment():
     parser.add_argument("--add-step-to-run-name", action='store_true', default=False)
     parser.add_argument("--delete-experiment-folder", action='store_true', default=False)
     args, config = parse_flexible_config(parser, override_known=True)
-    
-    print(f"Parsed arguments: {args}")
-    print(f"Flexible parameters: {config}")
+
+    print("\n" + "=" * 60)
+    print("\033[1mConfiguration\033[0m")
+    print("=" * 60)
+    print_config(config)
+    print("=" * 60 + "\n")
 
     # are we resuming?
     is_resuming = False if args.resume_run_id is None else True
