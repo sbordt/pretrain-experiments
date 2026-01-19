@@ -56,7 +56,7 @@ def run_experiment():
     checkpoint_interval = config.get("training.checkpoint_interval", 1000)
 
     # If no training steps specified, treat as eval_only
-    eval_only = config.get("eval.eval_only", False) or num_steps_to_train == 0
+    eval_only = config.get("evaluation.eval_only", False) or num_steps_to_train == 0
 
     existing_insertions = IntervalSet()
 
@@ -115,7 +115,7 @@ def run_experiment():
     num_steps_per_control = config.get("training", {}).get("dynamic_control_every", num_steps_to_train)
 
     # evaluate the current checkpoint if requested (skip if no weights)
-    if current_checkpoint.has_weights() and (eval_only or (config.get("eval.eval_on_load", False) and not is_resuming)):
+    if current_checkpoint.has_weights() and (eval_only or (config.get("evaluation.eval_on_load", False) and not is_resuming)):
         # convert checkpoint to huggingface format for evaluation
         hf_checkpoint_path = os.path.join(experiment_dir, f"step{current_step}-hf")
         hf_checkpoint_path = current_checkpoint.to_hf(hf_checkpoint_path)
@@ -123,7 +123,7 @@ def run_experiment():
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
-        eval_runner = EvaluationRunner(config.get('eval', {}))
+        eval_runner = EvaluationRunner(config.get('evaluation', {}))
         eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
 
         # log results to wandb
