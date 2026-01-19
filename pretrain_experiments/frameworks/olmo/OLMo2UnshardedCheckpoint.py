@@ -102,7 +102,7 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
 
         # Paths relative to OLMo repository
         conversion_script = os.path.join(self._olmo_repo_path, "scripts", "convert_olmo2_to_hf.py")
-        tokenizer_json_path = os.path.join(self._olmo_repo_path, "tokenizers", "allenai_dolma2-tokenizer.json")
+        tokenizer_json_path = os.path.join(self._olmo_repo_path, "olmo_data/tokenizers/allenai_dolma2.json") # TODO: better read from config?
 
         if not os.path.exists(conversion_script):
             raise FileNotFoundError(f"Conversion script not found at {conversion_script}")
