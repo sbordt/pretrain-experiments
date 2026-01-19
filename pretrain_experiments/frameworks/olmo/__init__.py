@@ -223,6 +223,18 @@ class OLMoFramework(Framework):
         if checkpoint is not None:
             training_script_cmd.append(f"--load_path={checkpoint.get_path()}")
 
+        # Add extra training args from config
+        training_args = self.config.get("training", {}).get("args", {})
+        for key, value in training_args.items():
+            if isinstance(value, list):
+                # Convert lists to OLMo config format: [item1,item2] or [] for empty
+                value_str = "[" + ",".join(str(v) for v in value) + "]"
+            elif isinstance(value, bool):
+                value_str = str(value).lower()
+            else:
+                value_str = str(value)
+            training_script_cmd.append(f"--{key}={value_str}")
+
         process = subprocess.Popen(training_script_cmd)
         return_code = process.wait()
 

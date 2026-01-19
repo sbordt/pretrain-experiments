@@ -71,7 +71,7 @@ def run_experiment():
 
     # we use the wandb run name and id as the folder name for the individual experiment
     wandb_name = config.get("wandb", {}).get("name")
-    experiment_dir = os.path.join(config.get("save_folder", "./"), config.get("experiment"), f"{wandb_name}-{wandb_run.id}")
+    experiment_dir = os.path.join(config.get("save_folder", os.environ.get("PRETRAIN_EXPERIMENTS", ".")), config.get("experiment"), f"{wandb_name}-{wandb_run.id}")
     print(f"Experiment directory: {experiment_dir}")
     if os.path.exists(experiment_dir) and args.delete_experiment_folder:
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
