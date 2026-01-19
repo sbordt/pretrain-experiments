@@ -1,5 +1,4 @@
 experiment: example-experiments
-save_folder: "./example-experiments"
 
 wandb:
   name: olmes-evaluation

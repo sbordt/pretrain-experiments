@@ -1,19 +1,18 @@
 experiment: example-experiments
-save_folder: "./pretrain-experiments"
 
 wandb:
-  name: experiment1
+  name: benchmark-contamination
   entity: "sbordt-University of Tübingen"
 
 framework: 
   type: olmo
-  repository_path: "/mnt/lustre/work/luxburg/sbordt10/OLMo/pretrain-experiments-dev/OLMo"
+  repository_path: "${PRETRAIN_EXPERIMENTS}/../OLMo"
 
 model:
   config: ${OLMo2_1B_STAGE1_SCRIPT}
   checkpoint_base_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
-  checkpoint_save_path: "./OLMo-2-0425-checkpoints"
+  checkpoint_save_path: "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-2-0425-1B"
 
 training:
   num_steps: 10
@@ -27,11 +26,11 @@ experiments:
       repetitions: 4
 
 evaluation:
-  eval_on_load: false
+  eval_on_load: true
   evaluations:
 
-    - name: arc_easy_internal_olmo_eval_replication
-      script: eval_benchmark.py
+    - name: arc_challenge
+      script: benchmark.py
       args:
-        task-file: ${OLMO_PRIVATE_PATH}/single-training-run/resources/benchmark-questions/olmes_arc_easy_validation_queries.jsonl
+        task-file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test_queries.jsonl
         norm: none
