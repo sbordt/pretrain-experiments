@@ -28,7 +28,7 @@ pip install -e .[all]
 pip install h5py
 ```
 
-The config files of the experiments then point to the OLMo repository. The example experiments assume the OLMo folder is located alongside the pretrain-experiments directory.
+The example experiments assume the OLMo folder is located alongside the pretrain-experiments directory.
 
 ### 3. Setup for OLMo-3 experiments (olmo_core)
 
