@@ -10,14 +10,7 @@ The framework is designed to support multiple backends. Currently only OLMo-2 is
 
 ## Installation
 
-### Prerequisites
-
-### 1. Create environment and install pretrain-experiments
-
 ```bash
-conda create -n pretrain-experiments python=3.12
-conda activate pretrain-experiments
-
 git clone https://github.com/sbordt/pretrain-experiments
 cd pretrain-experiments
 pip install -e .
@@ -25,11 +18,9 @@ pip install -e .
 
 ### 2. Setup for OLMo-2 experiments
 
-You need a modified version of the original OLMo repoistory that integrates support for data modifications. 
+You need a modified version of the OLMo repoistory that integrates support for data modifications, provided [here](https://github.com/sbordt/OLMo).
 
 ```bash
-conda activate pretrain-experiments
-
 git clone https://github.com/sbordt/OLMo
 cd OLMo
 git checkout pretrain-experiments
