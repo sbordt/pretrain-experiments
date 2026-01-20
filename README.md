@@ -1,6 +1,6 @@
-# pretrain-experiments
+# Pretrain Experiments
 
-A framework for (continual) pretraining experiments on language models.
+A framework for (continual) pretraining experiments with language models.
 
 ## Overview
 
@@ -160,6 +160,8 @@ See `config/` for example configuration files.
 ## Contributing
 
 We welcome contributions. Feel free to open issues or submit pull requests.
+
+If you have questions, feel free to open an issue. 
 
 ## Citation
 
