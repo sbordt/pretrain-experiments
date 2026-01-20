@@ -15,7 +15,8 @@ from ...checkpoint import Checkpoint
 from ...script_utils import find_free_port
 
 from .OLMo2UnshardedCheckpoint import OLMo2UnshardedCheckpoint
-from .olmo_framework import setup_experiments as _setup_experiments
+from .insertion import setup_experiments as _setup_experiments
+from .insertion import create_olmo_insert_dict, insert_dict_to_olmo
 from .download_checkpoint import download_olmo_checkpoint
 
 

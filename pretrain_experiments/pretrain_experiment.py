@@ -179,7 +179,7 @@ def run_experiment():
         framework.set_additional_checkpoints(additional_checkpoint_steps)
 
     # setup the training loop (in steps for dynamic control experiments)
-    print(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} with control every {num_steps_per_control} steps.")
+    print(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} in steps of {num_steps_per_control}.")
 
     while current_step < initial_checkpoint_step + num_steps_to_train:
         # convert the current checkpoint to huggingface format for dynamic insertions

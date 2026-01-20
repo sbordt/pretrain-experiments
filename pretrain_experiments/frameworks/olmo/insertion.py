@@ -133,16 +133,15 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
     return memmap_insert_dict
 
 
-def insert_dict_to_olmo(insert_dict,
-                        config,
-                        experiment_dir):
+def insert_dict_to_olmo(insert_dict: Union[Dict[int, str], Dict[int, List[int]]],
+                        olmo_config: str,
+                        experiment_dir: Union[str, os.PathLike]) -> int:
     """Write the current insert dict in a file and tell olmo to use it."""
     # if the insert_dict is empty, we do not set the environment variable
     if not insert_dict:
         return 0
 
-    memmap_insert_dict = create_olmo_insert_dict(insert_dict, 
-                                                 config["model"]["config"])
+    memmap_insert_dict = create_olmo_insert_dict(insert_dict, olmo_config)
 
     insert_dict_path = os.path.join(experiment_dir, "insert_dict.pkl")
     with open(insert_dict_path, "wb") as f:
@@ -157,7 +156,7 @@ def setup_experiments(insert_dict,
                       config,
                       experiment_dir):
     """Setup experiments with olmo"""
-    return insert_dict_to_olmo(insert_dict, config, experiment_dir)
+    return insert_dict_to_olmo(insert_dict, config["model"]["config"], experiment_dir)
 
 
 if __name__ == "__main__":
