@@ -4,32 +4,13 @@ A framework for (continual) pretraining experiments on language models.
 
 ## Overview
 
-This package allows you to take any OLMo-2 checkpoint and train it for n steps while performing arbitrary modifications to the training data. The package orchestrates this process and integrates evaluation, making it easy to run complex experiments such as [continual pretraining dependence testing](https://arxiv.org/abs/2509.23383).
+This package allows you to take an (intermediate) model checkpoint and train it for n steps with modifications to the training data. The package orchestrates this process and integrates evaluation, making it easy to run more complex experiments such as [continual pretraining dependence testing](https://arxiv.org/abs/2509.23383).
 
-The framework is designed to support multiple backends. Currently OLMo-2 is supported, with OLMo-3 and other frameworks planned for future integration.
-
-## Features
-
-- **Checkpoint continuation**: Resume training from any OLMo-2 checkpoint
-- **Data modification**: Inject custom texts or tokens at precise positions in the training data
-- **Integrated evaluation**: Automatically run evaluations on trained checkpoints
-- **Experiment tracking**: Built-in Weights & Biases integration
-- **Extensible backends**: Architecture supports adding new model frameworks
-
-### Experiment Types
-
-- `add-texts-from-file`: Insert custom text sequences into the training data
-- `add-tokens-from-file`: Insert raw token sequences into the training data
-- `benchmark-contamination`: Test for benchmark data leakage effects
-- `gaussian-poisoning`: Add noise-based perturbations to training
+The framework is designed to support multiple backends. Currently only OLMo-2 is supported, with OLMo-3 and other frameworks planned for future integration.
 
 ## Installation
 
 ### Prerequisites
-
-- Python 3.10+
-- CUDA-compatible GPU
-- Conda (recommended)
 
 ### 1. Create environment and install pretrain-experiments
 
@@ -44,6 +25,8 @@ pip install -e .
 
 ### 2. Setup for OLMo-2 experiments
 
+You need a modified version of the original OLMo repoistory that integrates support for data modifications. 
+
 ```bash
 conda activate pretrain-experiments
 
@@ -54,22 +37,7 @@ pip install -e .[all]
 pip install h5py
 ```
 
-For flash attention support:
-
-```bash
-pip install psutil ninja packaging
-pip install flash_attn --no-build-isolation
-```
-
-Then configure your experiment YAML to point to the OLMo repository:
-
-```yaml
-framework:
-  type: olmo
-  repository_path: /path/to/OLMo
-```
-
-The example configurations assume the OLMo folder is located alongside the pretrain-experiments directory.
+The config files of the experiments then point to the OLMo repository. The example experiments assume the OLMo folder is located alongside the pretrain-experiments directory.
 
 ### 3. Setup for OLMo-3 experiments (olmo_core)
 
@@ -77,16 +45,16 @@ Coming soon!
 
 ## Quick Start
 
-Run a pretraining experiment:
+Experiments are configured in yaml files. To run an experiment, simply type
 
 ```bash
 pretrain-experiments config/your-config.yaml
 ```
 
-Resume a previous W&B run:
+You can overwrite parameters in the config file with additional arguments, for example
 
 ```bash
-pretrain-experiments config/your-config.yaml --resume_run_id <wandb_run_id>
+pretrain-experiments config/your-config.yaml --training.num_steps 100
 ```
 
 ## Configuration
@@ -152,18 +120,18 @@ Specifies which training backend to use.
 
 #### `model`
 
-Defines which model checkpoint to start from.
+Defines which model checkpoint to start from. For OLMo-2 models:
 
-- `config`: Path to the OLMo model configuration YAML (defines architecture, hyperparameters, data paths)
+- `config`: Path to the OLMo model configuration YAML
 - `checkpoint_base_url`: URL where checkpoints are hosted
 - `checkpoint_step`: Which training step's checkpoint to load (e.g., `100000` loads the checkpoint from step 100k)
 - `checkpoint_save_path` (optional): Local path to cache downloaded checkpoints
 
 #### `training`
 
-Controls the training process.
+Paramters of the training process.
 
-- `num_steps`: Number of training steps to run
+- `num_steps`: Number of steps to train
 - `checkpoint_interval` (optional): Save checkpoints every N steps
 - `args` (optional): Additional arguments passed to the OLMo trainer (e.g., `device_train_microbatch_size`, `model.flash_attention`)
 
@@ -174,7 +142,7 @@ Defines the data modifications to apply during training.
 - `seed`: Random seed for reproducibility
 - `experiments`: List of experiment definitions, each with:
   - `name`: Identifier for this experiment
-  - `type`: One of `add-texts-from-file`, `add-tokens-from-file`, `benchmark-contamination`, `gaussian-poisoning`
+  - `type`: One of `add-texts-from-file` or `add-tokens-from-file`
   - Additional type-specific parameters (e.g., `file` for text/token insertion)
 
 #### `evaluation`
@@ -189,29 +157,13 @@ Configures evaluations to run on checkpoints.
 
 See `config/` for example configuration files.
 
-## CLI Reference
-
-```bash
-# Run an experiment
-pretrain-experiments config/experiment.yaml
-
-# Resume a W&B run
-pretrain-experiments config/experiment.yaml --resume_run_id <id>
-
-# Include checkpoint step in W&B run name
-pretrain-experiments config/experiment.yaml --add-step-to-run-name
-
-# Clean up experiment folder after completion
-pretrain-experiments config/experiment.yaml --delete-experiment-folder
-```
-
 ## Contributing
 
-This project is under active development. We welcome contributions! Feel free to open issues or submit pull requests.
+We welcome contributions. Feel free to open issues or submit pull requests.
 
 ## Citation
 
-If you use this framework in your research, please cite:
+If you use this software in your research, please cite:
 
 ```bibtex
 @article{bordt2025train,
@@ -221,7 +173,3 @@ If you use this framework in your research, please cite:
   year={2025}
 }
 ```
-
-## License
-
-MIT License
