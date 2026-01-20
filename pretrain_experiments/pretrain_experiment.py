@@ -255,7 +255,7 @@ def run_experiment():
     # run evals
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
-    eval_runner = EvaluationRunner(config.get('eval', {}))
+    eval_runner = EvaluationRunner(config.get('evaluation', {}))
     eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
 
     # log results to wandb
