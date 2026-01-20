@@ -93,6 +93,8 @@ pretrain-experiments config/your-config.yaml --resume_run_id <wandb_run_id>
 
 Experiments are configured via YAML files. Environment variables can be substituted using `${VAR_NAME}` syntax.
 
+### Example Configuration
+
 ```yaml
 experiment: my-experiment
 
@@ -127,6 +129,63 @@ evaluation:
       args:
         task-file: path/to/tasks.jsonl
 ```
+
+### Configuration Sections
+
+#### `experiment`
+
+A name for your experiment. Used for organizing output folders.
+
+#### `wandb`
+
+Weights & Biases configuration for experiment tracking.
+
+- `name`: The run name displayed in W&B
+- `entity`: Your W&B username or team name
+
+#### `framework`
+
+Specifies which training backend to use.
+
+- `type`: The framework type (currently `olmo` for OLMo-2)
+- `repository_path`: Path to the cloned OLMo repository
+
+#### `model`
+
+Defines which model checkpoint to start from.
+
+- `config`: Path to the OLMo model configuration YAML (defines architecture, hyperparameters, data paths)
+- `checkpoint_base_url`: URL where checkpoints are hosted
+- `checkpoint_step`: Which training step's checkpoint to load (e.g., `100000` loads the checkpoint from step 100k)
+- `checkpoint_save_path` (optional): Local path to cache downloaded checkpoints
+
+#### `training`
+
+Controls the training process.
+
+- `num_steps`: Number of training steps to run
+- `checkpoint_interval` (optional): Save checkpoints every N steps
+- `args` (optional): Additional arguments passed to the OLMo trainer (e.g., `device_train_microbatch_size`, `model.flash_attention`)
+
+#### `experiments`
+
+Defines the data modifications to apply during training.
+
+- `seed`: Random seed for reproducibility
+- `experiments`: List of experiment definitions, each with:
+  - `name`: Identifier for this experiment
+  - `type`: One of `add-texts-from-file`, `add-tokens-from-file`, `benchmark-contamination`, `gaussian-poisoning`
+  - Additional type-specific parameters (e.g., `file` for text/token insertion)
+
+#### `evaluation`
+
+Configures evaluations to run on checkpoints.
+
+- `eval_on_load`: If `true`, evaluate the initial checkpoint before training
+- `evaluations`: List of evaluations to run, each with:
+  - `name`: Identifier for this evaluation
+  - `script`: Python script to execute (from `pretrain_experiments/evaluation/`)
+  - `args`: Arguments passed to the evaluation script
 
 See `config/` for example configuration files.
 

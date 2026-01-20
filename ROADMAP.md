@@ -3,6 +3,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+# TODO's
+
 - standardize evals (release evals?)
 
 - when re-starting with long training stuff, will always restart from initial checkpoint again
@@ -24,3 +35,7 @@ add  (asynch?) evals during training.
 - handle config logic with better checks ... perhaps define a large args structure?
 
 - allow for olmes - evals
+
+- change olmo insertion functions to be more low-level, that is turn off splitting and auto-corrections should be possible
+
+- move olmo insertions fully towards hdf5

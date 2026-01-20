@@ -47,8 +47,6 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
     - determine the sequence indices in the global_indices array that correspond to the global token positions
     - split overly long sequences across multiple sequences if necessary, or auto-correct the insertion position to avoid splits across sequences
 
-    NOTE: eos tokens are added to strings, but not to lists of tokens.
-
     Example Input:
         insert_dict = {
             5: "Das scheint ja zu funktionieren!", 
@@ -81,7 +79,7 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
         global_indices = np.memmap(global_indices_path, mode="r+", dtype=np.uint32)
     else:
         # we need to build the train dataloader to get the global indices
-        print("No global indices path provided, building train dataloader to get global indices.")
+        print("No global indices file provided, building the OLMo dataloader to get the global indices.")
         cfg.device_train_batch_size = 2 # if we do not set this we get an assertion error in build_train_dataloader
         cfg.save_overwrite = True # if we do not set this, we get an error if the folder already exists. might want to change this in the future.
         dataloader = build_train_dataloader(cfg)
@@ -91,7 +89,7 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
     # if the insert dict is a dict of strings, we need to tokenize the strings
     tokenized_insert_dict = insert_dict
     if isinstance(next(iter(insert_dict.values())), str):
-        tokenized_insert_dict = {k: [tokenizer.eos_token_id] + tokenizer.encode(v) for k, v in insert_dict.items()}
+        tokenized_insert_dict = {k: tokenizer.encode(v) for k, v in insert_dict.items()}
 
     # derive the resulting insertions into sequences of the training data
     sequence_insert_dict = {}
@@ -144,6 +142,7 @@ def insert_dict_to_olmo(insert_dict: Union[Dict[int, str], Dict[int, List[int]]]
     memmap_insert_dict = create_olmo_insert_dict(insert_dict, olmo_config)
 
     insert_dict_path = os.path.join(experiment_dir, "insert_dict.pkl")
+    insert_dict_path = os.path.abspath(insert_dict_path)
     with open(insert_dict_path, "wb") as f:
             pickle.dump(memmap_insert_dict, f)
     os.environ['OLMO_EXPERIMENT_INSERTIONS_FILE'] = insert_dict_path
