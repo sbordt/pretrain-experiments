@@ -144,12 +144,7 @@ def run_experiment():
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
         eval_runner = EvaluationRunner(config.get('evaluation', {}))
-        eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
-
-        # log results to wandb
-        wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
-        if wandb_results:
-            wandb.log(wandb_results, step=current_step)
+        eval_runner.run_all(hf_checkpoint_path, evals_dir, step=current_step)
 
     # if we are only evaluating, then we are done here
     if eval_only:
@@ -256,12 +251,7 @@ def run_experiment():
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
     eval_runner = EvaluationRunner(config.get('evaluation', {}))
-    eval_results = eval_runner.run_all(hf_checkpoint_path, evals_dir)
-
-    # log results to wandb
-    wandb_results = {f"evals/{name}_{k}": v for name, results in eval_results.items() for k, v in results.items()}
-    if wandb_results:
-        wandb.log(wandb_results, step=final_step)
+    eval_runner.run_all(hf_checkpoint_path, evals_dir, step=final_step)
 
     # optionally push the final checkpoint to HuggingFace Hub
     hf_config = config.get("huggingface", {})

@@ -12,6 +12,8 @@ Additional arguments can be passed via the 'args' field in the config.
 import os
 from typing import Optional
 
+import wandb
+
 from ..script_utils import run_python_script
 
 
@@ -92,13 +94,15 @@ class EvaluationRunner:
         print(f"Evaluation '{eval_name}' completed. Results: {result_data}")
         return result_data
 
-    def run_all(self, hf_checkpoint_path: str, results_dir: str) -> dict:
+    def run_all(self, hf_checkpoint_path: str, results_dir: str, step: Optional[int] = None) -> dict:
         """
-        Run all configured evaluations.
+        Run all configured evaluations and optionally log results to wandb.
 
         Args:
             hf_checkpoint_path: Path to the HuggingFace checkpoint
             results_dir: Directory to store evaluation results
+            step: Optional step number for wandb logging. If provided, results
+                  are logged to wandb with keys like "evals/{eval_name}_{metric}".
 
         Returns:
             Dictionary of all results, keyed by evaluation name
@@ -115,4 +119,17 @@ class EvaluationRunner:
                 all_results[eval_name] = result
 
         print(f"\nAll evaluations completed. {len(all_results)}/{len(evaluations)} succeeded.")
+
+        # Log results to wandb if step is provided
+        if step is not None and all_results:
+            wandb_results = {}
+            for k, results in all_results.items():
+                for metric, value in results.items():
+                    if "/" in metric: # if there is a "/" in the name of the metric, we assume it's already namespaced
+                        wandb_results[metric] = value
+                    else:
+                        wandb_results[f"evaluation/{k}/{metric}"] = value
+            if wandb_results:
+                wandb.log(wandb_results, step=step)
+
         return all_results
