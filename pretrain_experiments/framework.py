@@ -193,11 +193,11 @@ def get_framework(config: dict, experiment_dir: str) -> Framework:
     """
     Get a framework instance based on config.
 
-    The framework is determined by config["model"]["type"].
-    Defaults to "olmo" if not specified.
+    The framework is determined by config["framework"].
+    Defaults to "huggingface" if not specified.
 
     Args:
-        config: Configuration dict with model.type field.
+        config: Configuration dict with optional framework field.
         experiment_dir: Directory for experiment outputs.
 
     Returns:
@@ -206,15 +206,11 @@ def get_framework(config: dict, experiment_dir: str) -> Framework:
     Raises:
         ValueError: If the framework type is not registered.
     """
-    # Handle both dict and object-like config access
+    # Get framework name from config, default to huggingface
     if hasattr(config, 'get'):
-        model_config = config.get("model", {})
-        if hasattr(model_config, 'get'):
-            name = model_config.get("type", "olmo")
-        else:
-            name = getattr(model_config, "type", "olmo")
+        name = config.get("framework", "huggingface")
     else:
-        name = getattr(getattr(config, "model", None), "type", "olmo")
+        name = getattr(config, "framework", "huggingface")
 
     if name not in FRAMEWORK_REGISTRY:
         available = list(FRAMEWORK_REGISTRY.keys())
