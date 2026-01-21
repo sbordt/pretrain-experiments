@@ -177,7 +177,10 @@ from pathlib import Path
 
 def list_conda_environments() -> dict[str, Path]:
     """
-    List all conda environments by parsing `conda env list`.
+    List all conda environments by multiple methods:
+    1. Parse `conda env list`
+    2. Scan directories listed in `conda config --show envs_dirs`
+    3. Scan the envs folder under conda base
     
     Returns:
         Dictionary mapping environment names to their paths.
@@ -187,6 +190,7 @@ def list_conda_environments() -> dict[str, Path]:
     if not shutil.which("conda"):
         return envs
     
+    # Method 1: Parse `conda env list`
     try:
         result = subprocess.run(
             ["conda", "env", "list"],
@@ -194,28 +198,73 @@ def list_conda_environments() -> dict[str, Path]:
             text=True,
             timeout=10
         )
-        
-        if result.returncode != 0:
-            return envs
-        
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            
-            # Skip comments and empty lines
-            if not line or line.startswith("#"):
-                continue
-            
-            # Parse the line - format is "name    /path/to/env" or "name  *  /path/to/env" (active)
-            parts = line.split()
-            if len(parts) >= 2:
-                name = parts[0]
-                # The path is the last element (handles the * for active env)
-                path = Path(parts[-1])
-                if path.is_dir():
-                    envs[name] = path
-                    
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    name = parts[0]
+                    path = Path(parts[-1])
+                    if path.is_dir():
+                        envs[name] = path
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
+    
+    # Method 2: Scan envs_dirs from conda config
+    try:
+        result = subprocess.run(
+            ["conda", "config", "--show", "envs_dirs"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("- "):
+                    envs_dir = Path(line[2:].strip())
+                    if envs_dir.is_dir():
+                        for d in envs_dir.iterdir():
+                            if d.is_dir() and (d / "bin" / "python").exists():
+                                envs[d.name] = d
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+        pass
+    
+    # Method 3: Get conda base and scan its envs folder
+    try:
+        result = subprocess.run(
+            ["conda", "info", "--base"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            base = Path(result.stdout.strip())
+            
+            # Add base environment itself
+            if (base / "bin" / "python").exists():
+                envs["base"] = base
+            
+            # Scan envs subdirectory
+            envs_dir = base / "envs"
+            if envs_dir.is_dir():
+                for d in envs_dir.iterdir():
+                    if d.is_dir() and (d / "bin" / "python").exists():
+                        envs[d.name] = d
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+        pass
+    
+    # Method 4: Check CONDA_ENVS_PATH environment variable
+    conda_envs_path = os.environ.get("CONDA_ENVS_PATH", "")
+    if conda_envs_path:
+        for envs_dir_str in conda_envs_path.split(os.pathsep):
+            envs_dir = Path(envs_dir_str)
+            if envs_dir.is_dir():
+                for d in envs_dir.iterdir():
+                    if d.is_dir() and (d / "bin" / "python").exists():
+                        envs[d.name] = d
     
     return envs
 
