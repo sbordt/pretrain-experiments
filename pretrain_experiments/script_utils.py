@@ -9,8 +9,6 @@ import shlex
 import json
 import time
 from functools import wraps
-from platformdirs import user_cache_dir
-import hashlib
 
 def load_jsonl(filepath):
     """
@@ -169,31 +167,63 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=N
     # return success, result_data, result
     return success, result_data, result
 
-import os
-import shutil
-import subprocess
-from pathlib import Path
+
+def _get_conda_executable() -> str | None:
+    """
+    Find the conda executable, preferring CONDA_EXE environment variable
+    over shutil.which to handle cases where the system conda differs from
+    the user's conda installation.
+    """
+    # Prefer CONDA_EXE if set (points to user's actual conda)
+    conda_exe = os.environ.get("CONDA_EXE")
+    if conda_exe and Path(conda_exe).is_file():
+        return conda_exe
+
+    # Fall back to shutil.which
+    return shutil.which("conda")
 
 
 def list_conda_environments() -> dict[str, Path]:
     """
     List all conda environments by multiple methods:
-    1. Parse `conda env list`
-    2. Scan directories listed in `conda config --show envs_dirs`
-    3. Scan the envs folder under conda base
-    
+    1. Check CONDA_PREFIX environment variable for current conda installation
+    2. Parse `conda env list`
+    3. Scan directories listed in `conda config --show envs_dirs`
+    4. Scan the envs folder under conda base
+
     Returns:
         Dictionary mapping environment names to their paths.
     """
     envs = {}
-    
-    if not shutil.which("conda"):
+
+    # Method 0: Use CONDA_PREFIX to find base and its envs
+    # This is the most reliable method when conda is activated
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix:
+        base = Path(conda_prefix)
+        # Walk up to find the actual base (CONDA_PREFIX might be an env)
+        while base.parent.name == "envs":
+            base = base.parent.parent
+
+        # Add base environment
+        if (base / "bin" / "python").exists():
+            envs["base"] = base
+
+        # Scan envs subdirectory
+        envs_dir = base / "envs"
+        if envs_dir.is_dir():
+            for d in envs_dir.iterdir():
+                if d.is_dir() and (d / "bin" / "python").exists():
+                    envs[d.name] = d
+
+    conda_exe = _get_conda_executable()
+    if not conda_exe:
         return envs
-    
+
     # Method 1: Parse `conda env list`
     try:
         result = subprocess.run(
-            ["conda", "env", "list"],
+            [conda_exe, "env", "list"],
             capture_output=True,
             text=True,
             timeout=10
@@ -204,18 +234,46 @@ def list_conda_environments() -> dict[str, Path]:
                 if not line or line.startswith("#"):
                     continue
                 parts = line.split()
-                if len(parts) >= 2:
+                if not parts:
+                    continue
+
+                # Handle different formats:
+                # "name    /path/to/env"
+                # "name  * /path/to/env"  (active env)
+                # "* /path/to/env"        (active env, no name)
+                # "/path/to/env"          (no name, not active)
+
+                # Find the path (always the last element that looks like a path)
+                path_str = parts[-1]
+                if not path_str.startswith("/"):
+                    continue
+                path = Path(path_str)
+                if not path.is_dir():
+                    continue
+
+                # Determine the name
+                if parts[0] == "*":
+                    # Active env without explicit name - extract from path
+                    name = path.name if path.name != "" else "base"
+                elif parts[0].startswith("/"):
+                    # No name, just a path - extract from path
+                    name = path.name if path.name != "" else "base"
+                else:
+                    # First element is the name
                     name = parts[0]
-                    path = Path(parts[-1])
-                    if path.is_dir():
-                        envs[name] = path
+
+                # If the path ends with the base conda dir, it's the base env
+                if (path / "envs").is_dir() and (path / "conda-meta").is_dir():
+                    name = "base"
+
+                envs[name] = path
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
-    
+
     # Method 2: Scan envs_dirs from conda config
     try:
         result = subprocess.run(
-            ["conda", "config", "--show", "envs_dirs"],
+            [conda_exe, "config", "--show", "envs_dirs"],
             capture_output=True,
             text=True,
             timeout=5
@@ -231,22 +289,22 @@ def list_conda_environments() -> dict[str, Path]:
                                 envs[d.name] = d
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
-    
+
     # Method 3: Get conda base and scan its envs folder
     try:
         result = subprocess.run(
-            ["conda", "info", "--base"],
+            [conda_exe, "info", "--base"],
             capture_output=True,
             text=True,
             timeout=5
         )
         if result.returncode == 0:
             base = Path(result.stdout.strip())
-            
+
             # Add base environment itself
             if (base / "bin" / "python").exists():
                 envs["base"] = base
-            
+
             # Scan envs subdirectory
             envs_dir = base / "envs"
             if envs_dir.is_dir():
@@ -255,7 +313,7 @@ def list_conda_environments() -> dict[str, Path]:
                         envs[d.name] = d
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
         pass
-    
+
     # Method 4: Check CONDA_ENVS_PATH environment variable
     conda_envs_path = os.environ.get("CONDA_ENVS_PATH", "")
     if conda_envs_path:
@@ -265,115 +323,44 @@ def list_conda_environments() -> dict[str, Path]:
                 for d in envs_dir.iterdir():
                     if d.is_dir() and (d / "bin" / "python").exists():
                         envs[d.name] = d
-    
+
     return envs
 
 
 def find_python_executable(env_name: str) -> Path | None:
     """
     Find the Python executable for a given environment name.
-    Searches common locations for conda, uv, pyenv, pipenv, poetry,
-    virtualenvwrapper, and other virtual environment managers.
-    
+    Searches conda environments and common virtualenv locations.
+
     Args:
         env_name: Name of the environment (e.g., "olmes")
-    
+
     Returns:
         Path to the Python executable if found, None otherwise.
     """
     home = Path.home()
-    
+
     def check(path: Path) -> Path | None:
         if path.is_file() and os.access(path, os.X_OK):
             return path.resolve()
         return None
 
-    # --- Conda environments via `conda env list` ---
+    # --- Conda environments (comprehensive search via list_conda_environments) ---
     conda_envs = list_conda_environments()
     if env_name in conda_envs:
         env_path = conda_envs[env_name]
         if p := check(env_path / "bin" / "python"):
             return p
 
-    # --- Conda environments via config ---
-    if shutil.which("conda"):
-        try:
-            result = subprocess.run(
-                ["conda", "config", "--show", "envs_dirs"],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if line.startswith("- "):
-                    envs_dir = Path(line[2:].strip())
-                    if p := check(envs_dir / env_name / "bin" / "python"):
-                        return p
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            pass
-
-    # Common conda locations
-    conda_bases = [
-        home / "miniconda3",
-        home / "anaconda3",
-        home / "miniforge3",
-        home / "mambaforge",
-        Path("/opt/conda"),
-        Path("/opt/miniconda3"),
-        Path("/opt/anaconda3"),
-    ]
-    for base in conda_bases:
-        if p := check(base / "envs" / env_name / "bin" / "python"):
-            return p
-
-    # --- uv environments ---
-    xdg_data = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
-    if p := check(xdg_data / "uv" / "environments" / env_name / "bin" / "python"):
-        return p
-
-    # uv cache location
-    xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
-    uv_cache = xdg_cache / "uv"
-    if uv_cache.exists():
-        for match in uv_cache.rglob(f"{env_name}/bin/python"):
-            if p := check(match):
-                return p
-
     # --- pyenv environments ---
     pyenv_root = Path(os.environ.get("PYENV_ROOT", home / ".pyenv"))
     if p := check(pyenv_root / "versions" / env_name / "bin" / "python"):
         return p
 
-    # --- pipenv environments ---
-    pipenv_dir = home / ".local" / "share" / "virtualenvs"
-    if pipenv_dir.exists():
-        for d in pipenv_dir.iterdir():
-            if d.name.startswith(env_name):
-                if p := check(d / "bin" / "python"):
-                    return p
-
     # --- virtualenvwrapper ---
     workon_home = Path(os.environ.get("WORKON_HOME", home / ".virtualenvs"))
     if p := check(workon_home / env_name / "bin" / "python"):
         return p
-
-    # --- Poetry environments ---
-    poetry_cache = xdg_cache / "pypoetry" / "virtualenvs"
-    if poetry_cache.exists():
-        for d in poetry_cache.iterdir():
-            if d.name.startswith(env_name):
-                if p := check(d / "bin" / "python"):
-                    return p
-
-    # --- Common custom venv locations ---
-    common_bases = [
-        home / ".venvs",
-        home / "venvs",
-        home / "envs",
-        home / ".envs",
-    ]
-    for base in common_bases:
-        if p := check(base / env_name / "bin" / "python"):
-            return p
 
     # --- Local .venv or venv in current directory ---
     if env_name in (".venv", "venv"):
@@ -388,71 +375,6 @@ def find_python_executable(env_name: str) -> Path | None:
             return Path(python_path).resolve()
 
     return None
-
-
-def list_all_environments() -> dict[str, Path]:
-    """
-    List all discoverable Python environments from all sources.
-    
-    Returns:
-        Dictionary mapping environment names to their Python executable paths.
-    """
-    home = Path.home()
-    envs = {}
-    
-    def check_and_add(name: str, python_path: Path):
-        if python_path.is_file() and os.access(python_path, os.X_OK):
-            envs[name] = python_path.resolve()
-    
-    # --- Conda environments ---
-    conda_envs = list_conda_environments()
-    for name, env_path in conda_envs.items():
-        check_and_add(name, env_path / "bin" / "python")
-    
-    # --- pyenv environments ---
-    pyenv_root = Path(os.environ.get("PYENV_ROOT", home / ".pyenv"))
-    versions_dir = pyenv_root / "versions"
-    if versions_dir.exists():
-        for d in versions_dir.iterdir():
-            if d.is_dir():
-                check_and_add(f"pyenv:{d.name}", d / "bin" / "python")
-    
-    # --- virtualenvwrapper ---
-    workon_home = Path(os.environ.get("WORKON_HOME", home / ".virtualenvs"))
-    if workon_home.exists():
-        for d in workon_home.iterdir():
-            if d.is_dir():
-                check_and_add(d.name, d / "bin" / "python")
-    
-    # --- pipenv environments ---
-    pipenv_dir = home / ".local" / "share" / "virtualenvs"
-    if pipenv_dir.exists():
-        for d in pipenv_dir.iterdir():
-            if d.is_dir():
-                check_and_add(f"pipenv:{d.name}", d / "bin" / "python")
-    
-    # --- Poetry environments ---
-    xdg_cache = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache"))
-    poetry_cache = xdg_cache / "pypoetry" / "virtualenvs"
-    if poetry_cache.exists():
-        for d in poetry_cache.iterdir():
-            if d.is_dir():
-                check_and_add(f"poetry:{d.name}", d / "bin" / "python")
-    
-    # --- Common custom venv locations ---
-    common_bases = [
-        home / ".venvs",
-        home / "venvs",
-        home / "envs",
-        home / ".envs",
-    ]
-    for base in common_bases:
-        if base.exists():
-            for d in base.iterdir():
-                if d.is_dir():
-                    check_and_add(d.name, d / "bin" / "python")
-    
-    return envs
 
 
 def find_python_executable_or_raise(env_name: str) -> Path:
@@ -471,13 +393,9 @@ def find_python_executable_or_raise(env_name: str) -> Path:
     result = find_python_executable(env_name)
     if result is None:
         searched = [
-            "Conda environments",
-            "uv environments (~/.local/share/uv/environments/)",
+            "Conda environments (CONDA_PREFIX, conda env list, envs_dirs)",
             "pyenv versions (~/.pyenv/versions/)",
-            "pipenv virtualenvs (~/.local/share/virtualenvs/)",
             "virtualenvwrapper (WORKON_HOME / ~/.virtualenvs)",
-            "Poetry virtualenvs (~/.cache/pypoetry/virtualenvs/)",
-            "Common venv directories (~/.venvs, ~/venvs, ~/envs)",
         ]
         raise FileNotFoundError(
             f"Could not find Python executable for environment '{env_name}'.\n"
