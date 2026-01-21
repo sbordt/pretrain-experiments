@@ -76,7 +76,7 @@ pretrain-experiments config/your-config.yaml --delete-experiment-folder
 ### Data Structures
 
 - **IntervalSet** (`IntervalSet.py`): Treap-based disjoint interval tracking for avoiding duplicate insertions
-- **DynamicHDF5Storage** (`DynamicHDF5Storage.py`): Memory-efficient incremental HDF5 storage
+- **InsertionMapReader/Writer** (`token_insertion.py`): HDF5 storage for insertion maps (index → [(position, [token_ids])]), where index can be sequence index, batch index, etc.
 
 ### Utility Functions (script_utils.py)
 
