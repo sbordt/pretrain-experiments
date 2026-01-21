@@ -97,16 +97,17 @@ def savely_remove_anything(path):
         print(f"ERROR: Failed to delete {path}: {e}")
 
 
-def run_python_script(script_path, args_string="", results_yaml_file=None, **kwargs):
+def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=None, **kwargs):
     """
     Run a Python script with command-line arguments.
-    
+
     Args:
         script_path (str): Path to the Python script to run
         args_string (str): Command-line arguments as a string (e.g., "--param ab --param2 x")
-        check_result_file (str, optional): Path to result file to check for existence and content
+        results_yaml_file (str, optional): Path to result file to check for existence and content
+        cwd (str, optional): Working directory to run the script from
         **kwargs: Additional arguments to pass as --key value pairs
-    
+
     Returns:
         tuple: (success: bool, result_data: dict or None, subprocess_result)
     """
@@ -125,11 +126,14 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, **kwa
     
     # Run the script
     print(f"Running: {' '.join(cmd)}")
+    if cwd:
+        print(f"Working directory: {cwd}")
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        check=False
+        check=False,
+        cwd=cwd
     )
     
     #  upon failure, print output if there's any

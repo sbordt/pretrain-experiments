@@ -3,7 +3,10 @@
 from pretrain_experiments.script_utils import find_python_executable_or_raise
 from pathlib import Path
 import subprocess
-import tempfile
+import os
+import json
+import yaml
+import glob
 
 if __name__ == "__main__":
     import argparse
@@ -40,14 +43,44 @@ if __name__ == "__main__":
     # pass all unknown arguments to olmes
     cmd_args.extend(extra_args)
 
-    # create temporary output directory and run olmes
-    with tempfile.TemporaryDirectory() as output_dir:
-        cmd_args.append(f"--output-dir={output_dir}")
-        
-        print(f"Running OLMES evaluation with command: {' '.join(cmd_args)}")
-        print(f"Output directory: {output_dir}")
-        process = subprocess.Popen(cmd_args, env=env)
-        process.wait()
-        print("OLMES execution completed")
-        
-        # TODO: process results from output_dir before it gets cleaned up
+    # create output directory (relative to cwd, which is set to eval_dir by the runner)
+    output_dir = "olmes-output"
+    os.makedirs(output_dir, exist_ok=True)
+    cmd_args.append(f"--output-dir={output_dir}")
+
+    print(f"Running OLMES evaluation with command: {' '.join(cmd_args)}")
+    print(f"Output directory: {output_dir}")
+    process = subprocess.Popen(cmd_args, env=env)
+    process.wait()
+    print("OLMES execution completed")
+
+    # process results from output_dir
+    # metrics files have pattern: task-###-{taskname}-metrics.json
+    results = {}
+    metrics_files = glob.glob(os.path.join(output_dir, "task-*-metrics.json"))
+
+    for metrics_file in metrics_files:
+        try:
+            with open(metrics_file, "r") as f:
+                data = json.load(f)
+
+            task_name = data.get("task_name", "unknown")
+            metrics = data.get("metrics", {})
+
+            # store each metric as olmes/{task_name}_{metric_name}
+            for metric_name, metric_value in metrics.items():
+                # only include numeric metrics
+                if isinstance(metric_value, (int, float)):
+                    key = f"olmes/{task_name}_{metric_name}"
+                    results[key] = metric_value
+
+        except Exception as e:
+            print(f"WARNING: Failed to parse metrics file {metrics_file}: {e}")
+
+    print(f"Processed {len(metrics_files)} metrics files, extracted {len(results)} metrics")
+
+    # write results to yaml file
+    if args.results_yaml:
+        with open(args.results_yaml, "w") as f:
+            yaml.dump(results, f)
+        print(f"Results written to {args.results_yaml}")

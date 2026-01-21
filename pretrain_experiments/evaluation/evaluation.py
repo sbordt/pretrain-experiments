@@ -82,8 +82,8 @@ class EvaluationRunner:
         cmd_args = f"--model {hf_checkpoint_path} --results-yaml {result_file}"
         cmd_args += " " + " ".join([f"--{k} {v}" for k, v in args.items()])
 
-        # Run the evaluation script
-        success, result_data, _ = run_python_script(script_path, cmd_args, result_file)
+        # Run the evaluation script from the eval directory
+        success, result_data, _ = run_python_script(script_path, cmd_args, result_file, cwd=eval_dir)
 
         if not success or result_data is None:
             print(f"ERROR: Evaluation '{eval_name}' failed")

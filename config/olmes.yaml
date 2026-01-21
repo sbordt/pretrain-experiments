@@ -1,7 +1,7 @@
 experiment: example-experiments
 
 wandb:
-  name: olmes-evaluation
+  name: olmes
   entity: "sbordt-University of Tübingen"
 
 model: "allenai/OLMo-2-0425-1B"
@@ -13,3 +13,4 @@ evaluation:
       args:
         task: arc_challenge::olmes
         environment: olmes
+
