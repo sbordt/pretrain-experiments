@@ -17,6 +17,12 @@ class InsertionMapReader:
         - Batch index: insertions into specific batches
         - Any other integer identifier relevant to your framework
 
+    Supports both formats:
+        - Simple format: created by InsertionMapWriter.write_dict() / append_dict()
+        - Optimized format: created by InsertionMapWriter.save_optimized()
+
+    The optimized format is recommended for large files and frequent random access.
+
     Optimized for random access patterns with lazy file opening
     and configurable HDF5 chunk caching.
     """
@@ -26,7 +32,7 @@ class InsertionMapReader:
         Initialize the insertion map reader.
 
         Args:
-            hdf5_path: Path to the HDF5 file containing insertion data
+            hdf5_path: Path to the HDF5 file (simple or optimized format)
             cache_size_mb: Cache size in MB for HDF5 chunk cache
         """
         self.hdf5_path = hdf5_path
@@ -38,9 +44,13 @@ class InsertionMapReader:
         self._key_to_idx = None
         self._is_optimized = None
 
-        # Dataset handles (for optimized format)
-        self._tuple_ints = None
-        self._int_lists_vlen = None
+        # Dataset handles for optimized format
+        self._tuple_offsets = None
+        self._positions = None
+        self._token_offsets = None
+        self._tokens = None
+
+        # Dataset handle for simple format
         self._data_group = None
 
         # Load indices immediately
@@ -58,18 +68,19 @@ class InsertionMapReader:
                 rdcc_nslots=10007  # Prime number for hash efficiency
             )
 
-            # Check if this is optimized format or simple format
-            if 'tuple_ints' in self._f:
+            # Detect format
+            if 'tuple_offsets' in self._f:
                 self._is_optimized = True
-                self._tuple_ints = self._f['tuple_ints']
-                self._int_lists_vlen = self._f['int_lists_vlen']
+                self._tuple_offsets = self._f['tuple_offsets']
+                self._positions = self._f['positions']
+                self._token_offsets = self._f['token_offsets']
+                self._tokens = self._f['tokens']
             else:
                 self._is_optimized = False
                 self._data_group = self._f['data']
 
     def _load_indices(self):
         """Load all available indices from the HDF5 file"""
-        # Temporarily open file just to read keys
         with h5py.File(self.hdf5_path, 'r') as f:
             self._keys_array = f['keys'][:]
 
@@ -113,21 +124,19 @@ class InsertionMapReader:
             return self._load_simple(index)
 
     def _load_optimized(self, index: int) -> List[Tuple[int, List[int]]]:
-        """Load from optimized HDF5 format using variable-length arrays"""
+        """Load from optimized HDF5 format using offset arrays"""
         idx = self._key_to_idx[index]
 
-        # Read data for this index
-        tuple_ints = self._tuple_ints[idx]
-        int_lists_vlen = self._int_lists_vlen[idx]
+        # Get tuple range for this index
+        tuple_start = int(self._tuple_offsets[idx])
+        tuple_end = int(self._tuple_offsets[idx + 1])
 
-        # Reconstruct the original data structure
         result = []
-        for j in range(len(tuple_ints)):
-            if tuple_ints[j] == -1:  # End of valid data
-                break
-
-            position = int(tuple_ints[j])
-            token_ids = int_lists_vlen[j].tolist() if int_lists_vlen[j] is not None else []
+        for t in range(tuple_start, tuple_end):
+            position = int(self._positions[t])
+            token_start = int(self._token_offsets[t])
+            token_end = int(self._token_offsets[t + 1])
+            token_ids = self._tokens[token_start:token_end].tolist()
             result.append((position, token_ids))
 
         return result
@@ -167,10 +176,24 @@ class InsertionMapReader:
         """Support 'in' operator for checking if an index has insertions"""
         return self.has_index(index)
 
+    def close(self):
+        """Close the file handle"""
+        if self._f is not None:
+            self._f.close()
+            self._f = None
+
     def __del__(self):
         """Clean up file handle"""
-        if hasattr(self, '_f') and self._f is not None:
-            self._f.close()
+        self.close()
+
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.close()
+        return False
 
 
 class InsertionMapWriter:
@@ -190,6 +213,15 @@ class InsertionMapWriter:
 
     Each entry maps an index to a list of insertions, where each insertion
     is a tuple of (position, token_ids_to_insert).
+
+    Typical workflow:
+        writer = InsertionMapWriter("working.h5")
+        writer.write_dict(dict1)
+        writer.append_dict(dict2)
+        writer.save_optimized("optimized.h5")  # Create optimized file for reading
+        # Later...
+        writer.append_dict(dict3)
+        writer.save_optimized("optimized.h5")  # Re-create optimized file
     """
 
     def __init__(self, hdf5_path: str):
@@ -197,14 +229,14 @@ class InsertionMapWriter:
         Initialize the insertion map writer.
 
         Args:
-            hdf5_path: Path where the HDF5 file will be written
+            hdf5_path: Path where the HDF5 file will be written (simple format)
         """
         self.hdf5_path = hdf5_path
 
     def write_dict(self, insertion_map: Dict[int, List[Tuple[int, List[int]]]],
                    mode: str = 'w') -> None:
         """
-        Write insertion map to HDF5 file.
+        Write insertion map to HDF5 file in simple format.
 
         Args:
             insertion_map: Dictionary mapping indices to lists of
@@ -216,10 +248,8 @@ class InsertionMapWriter:
 
         with h5py.File(self.hdf5_path, mode) as f:
             if mode == 'w':
-                # Original write mode - overwrite everything
                 self._write_fresh_file(f, insertion_map)
             else:
-                # Append mode - merge with existing data
                 self._append_to_file(f, insertion_map)
 
         print(f"Successfully wrote data to {self.hdf5_path}")
@@ -233,10 +263,8 @@ class InsertionMapWriter:
         """
         print(f"Appending {len(insertion_map)} entries to {self.hdf5_path}")
 
-        # Check if file exists
         import os
         if not os.path.exists(self.hdf5_path):
-            # File doesn't exist, create it
             self.write_dict(insertion_map, mode='w')
             return
 
@@ -245,45 +273,98 @@ class InsertionMapWriter:
 
         print(f"Successfully appended data to {self.hdf5_path}")
 
+    def save_optimized(self, output_path: str) -> None:
+        """
+        Read the simple format file and write it to a new file in optimized format.
+
+        The optimized format uses offset arrays for efficient random access:
+            /keys           - int64[num_indices]: all indices
+            /tuple_offsets  - int64[num_indices + 1]: where each index's tuples start
+            /positions      - int32[total_tuples]: all positions flattened
+            /token_offsets  - int64[total_tuples + 1]: where each tuple's tokens start
+            /tokens         - int32[total_tokens]: all token_ids flattened
+
+        Args:
+            output_path: Path for the optimized HDF5 file
+        """
+        print(f"Creating optimized file {output_path} from {self.hdf5_path}")
+
+        # Read all data from simple format
+        with h5py.File(self.hdf5_path, 'r') as f:
+            if 'keys' not in f:
+                raise ValueError(f"No data in {self.hdf5_path}")
+
+            keys = f['keys'][:]
+            data_group = f['data']
+
+            # Collect all data
+            all_positions = []
+            all_tokens = []
+            tuple_offsets = [0]
+            token_offsets = [0]
+
+            for key in keys:
+                key_str = str(int(key))
+                if key_str not in data_group:
+                    continue
+
+                key_group = data_group[key_str]
+                num_tuples = key_group.attrs['num_tuples']
+
+                for i in range(num_tuples):
+                    tuple_group = key_group[f'tuple_{i}']
+                    position = int(tuple_group.attrs['tuple_int'])
+                    token_ids = tuple_group['int_list'][:].tolist()
+
+                    all_positions.append(position)
+                    all_tokens.extend(token_ids)
+                    token_offsets.append(len(all_tokens))
+
+                tuple_offsets.append(len(all_positions))
+
+        # Write optimized format
+        self._optimize_for_lustre_path(output_path)
+
+        with h5py.File(output_path, 'w') as f:
+            f.create_dataset('keys', data=keys, dtype=np.int64)
+            f.create_dataset('tuple_offsets', data=np.array(tuple_offsets, dtype=np.int64))
+            f.create_dataset('positions', data=np.array(all_positions, dtype=np.int32))
+            f.create_dataset('token_offsets', data=np.array(token_offsets, dtype=np.int64))
+            f.create_dataset('tokens', data=np.array(all_tokens, dtype=np.int32))
+
+        print(f"Successfully created optimized file with {len(keys)} indices, "
+              f"{len(all_positions)} tuples, {len(all_tokens)} tokens")
+
     def _write_fresh_file(self, f, insertion_map):
-        """Write data to a fresh file"""
-        # Store indices as a dataset
+        """Write data to a fresh file in simple format"""
         indices = list(insertion_map.keys())
         f.create_dataset('keys', data=np.array(indices, dtype=np.int64))
 
-        # Create a group for the actual data
         data_group = f.create_group('data')
 
-        # Store each index's insertion data
         for index, insertions in insertion_map.items():
             self._write_index_data(data_group, index, insertions)
 
     def _append_to_file(self, f, new_insertion_map):
         """Append data to existing file structure"""
-        # Get existing keys or create empty array if doesn't exist
         existing_keys = set()
         if 'keys' in f:
             existing_keys = set(f['keys'][:].tolist())
 
-        # Get or create data group
         if 'data' not in f:
             data_group = f.create_group('data')
         else:
             data_group = f['data']
 
-        # Process new data
         all_keys = existing_keys.copy()
 
         for index, insertions in new_insertion_map.items():
             if index in existing_keys:
-                # Index exists - append to existing insertions
                 self._append_to_index_data(data_group, index, insertions)
             else:
-                # New index - create new group
                 self._write_index_data(data_group, index, insertions)
                 all_keys.add(index)
 
-        # Update keys dataset
         if 'keys' in f:
             del f['keys']
         f.create_dataset('keys', data=np.array(sorted(all_keys), dtype=np.int64))
@@ -305,10 +386,8 @@ class InsertionMapWriter:
         key_str = str(index)
         key_group = data_group[key_str]
 
-        # Get current number of insertions
         current_num = key_group.attrs['num_tuples']
 
-        # Add new insertions
         for i, (position, token_ids) in enumerate(new_insertions):
             new_index = current_num + i
             tuple_group = key_group.create_group(f'tuple_{new_index}')
@@ -317,12 +396,11 @@ class InsertionMapWriter:
                                        data=np.array(token_ids, dtype=np.int32),
                                        compression='lzf')
 
-        # Update insertion count
         key_group.attrs['num_tuples'] = current_num + len(new_insertions)
 
     def read_dict(self) -> Dict[int, List[Tuple[int, List[int]]]]:
         """
-        Read entire insertion map from HDF5 file.
+        Read entire insertion map from HDF5 file (simple format).
 
         Returns:
             Dictionary mapping indices to lists of (position, [token_ids]) tuples
@@ -357,7 +435,7 @@ class InsertionMapWriter:
 
     def read_index(self, index: int) -> Optional[List[Tuple[int, List[int]]]]:
         """
-        Read insertions for a single index without loading entire file.
+        Read insertions for a single index without loading entire file (simple format).
 
         Args:
             index: The index to read insertions for
@@ -416,11 +494,14 @@ class InsertionMapWriter:
 
     def _optimize_for_lustre(self):
         """Optimize directory for Lustre filesystem if possible"""
+        self._optimize_for_lustre_path(self.hdf5_path)
+
+    def _optimize_for_lustre_path(self, path: str):
+        """Optimize directory for Lustre filesystem if possible"""
         import os
         try:
-            directory = os.path.dirname(self.hdf5_path)
+            directory = os.path.dirname(path)
             if directory and os.path.exists(directory):
-                # Try to set Lustre striping (this may fail silently)
                 os.system(f"lfs setstripe -c 1 {directory} 2>/dev/null")
         except:
             pass
@@ -428,42 +509,58 @@ class InsertionMapWriter:
 
 # Example usage:
 if __name__ == "__main__":
-    # Create writer instance
-    writer = InsertionMapWriter("test_insertions.h5")
+    import os
+    import tempfile
 
-    # Example: Using sequence indices
-    # For sequence 1: insert tokens [1,2,3] at position 10, and [4,5] at position 11
-    # For sequence 2: insert tokens [6,7,8,9] at position 20
-    initial_data = {
-        1: [(10, [1, 2, 3]), (11, [4, 5])],
-        2: [(20, [6, 7, 8, 9])]
-    }
+    with tempfile.TemporaryDirectory() as tmpdir:
+        working_file = os.path.join(tmpdir, "working.h5")
+        optimized_file = os.path.join(tmpdir, "optimized.h5")
 
-    # Write initial data
-    writer.write_dict(initial_data)
+        # Create writer for incremental writes
+        writer = InsertionMapWriter(working_file)
 
-    # Additional insertions to append
-    additional_data = {
-        1: [(12, [10, 11])],  # Add another insertion to index 1
-        3: [(30, [12, 13, 14])]  # New index
-    }
+        # Initial data: sequence indices with insertions
+        # For sequence 1: insert tokens [1,2,3] at position 10, and [4,5] at position 11
+        # For sequence 2: insert tokens [6,7,8,9] at position 20
+        initial_data = {
+            1: [(10, [1, 2, 3]), (11, [4, 5])],
+            2: [(20, [6, 7, 8, 9])]
+        }
+        writer.write_dict(initial_data)
 
-    # Append without loading entire file
-    writer.append_dict(additional_data)
+        # Append more data
+        additional_data = {
+            1: [(12, [10, 11])],  # Add another insertion to index 1
+            3: [(30, [12, 13, 14])]  # New index
+        }
+        writer.append_dict(additional_data)
 
-    # Read specific index
-    index_1_insertions = writer.read_index(1)
-    print(f"Index 1 insertions: {index_1_insertions}")
+        # Reader can read simple format directly
+        print("Reading simple format:")
+        with InsertionMapReader(working_file) as reader:
+            print(f"  Index 1 insertions: {reader.load(1)}")
+            print(f"  All indices: {reader.get_all_indices()}")
 
-    # Get all indices
-    all_indices = writer.get_indices()
-    print(f"All indices with insertions: {all_indices}")
+        # Create optimized file for efficient reading
+        writer.save_optimized(optimized_file)
 
-    # Read entire map (for verification)
-    full_data = writer.read_dict()
-    print(f"Full insertion map: {full_data}")
+        # Reader can also read optimized format
+        print("\nReading optimized format:")
+        with InsertionMapReader(optimized_file) as reader:
+            print(f"  Index 1 insertions: {reader.load(1)}")
+            print(f"  All indices: {reader.get_all_indices()}")
 
-    # Using the reader for efficient random access
-    reader = InsertionMapReader("test_insertions.h5")
-    print(f"Index 2 in reader: {2 in reader}")
-    print(f"Index 2 insertions: {reader.load(2)}")
+        # Later, append more data to working file
+        more_data = {
+            4: [(40, [100, 101, 102])]
+        }
+        writer.append_dict(more_data)
+
+        # Re-create optimized file
+        writer.save_optimized(optimized_file)
+
+        # Verify new data is accessible
+        with InsertionMapReader(optimized_file) as reader:
+            print(f"\nAfter adding more data:")
+            print(f"  All indices: {reader.get_all_indices()}")
+            print(f"  Index 4 insertions: {reader.load(4)}")
