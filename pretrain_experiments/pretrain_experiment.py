@@ -119,11 +119,6 @@ def run_experiment():
     if not is_resuming:
         wandb_run.name = config.get("wandb", {}).get("name") + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else "")
 
-    # Get sequence_length and batch_size from checkpoint config
-    sequence_length = initial_checkpoint.get_sequence_length()
-    batch_size = initial_checkpoint.get_batch_size()
-    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={not initial_checkpoint.has_weights()}")
-
     # perhaps search for the latest checkpoint to resume from
     if is_resuming:
         current_checkpoint = framework.find_latest_checkpoint(experiment_dir)
@@ -164,6 +159,11 @@ def run_experiment():
         print("Eval-only mode (no training steps specified). Done and Exiting.")
         wandb.finish()
         sys.exit(0)
+
+    # Get sequence_length and batch_size from checkpoint config
+    sequence_length = current_checkpoint.get_sequence_length()
+    batch_size = current_checkpoint.get_batch_size()
+    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={not initial_checkpoint.has_weights()}")
 
     # setup the experiments and set environment variables for olmo training script to include them
     insertion_builder = InsertionBuilder(config.get("experiments", {}), tokenizer)
