@@ -27,7 +27,7 @@ from .experiments import InsertionBuilder
 from .framework import get_framework
 from . import frameworks  # Import to trigger framework registration
 from .flexible_config import parse_flexible_config
-from .IntervalSet import IntervalSet
+from .token_insertion import IntervalSet
 
 
 def print_config(config: dict, indent: int = 0) -> None:

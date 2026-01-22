@@ -75,7 +75,7 @@ pretrain-experiments config/your-config.yaml --delete-experiment-folder
 
 ### Data Structures
 
-- **IntervalSet** (`IntervalSet.py`): Treap-based disjoint interval tracking for avoiding duplicate insertions
+- **IntervalSet** (in `token_insertion.py`): Treap-based disjoint interval tracking for avoiding duplicate insertions
 - **InsertionMapReader/Writer** (`insertion_map.py`): HDF5 storage for insertion maps (index → [(position, [token_ids])]), where index can be sequence index, batch index, etc.
 
 ### Utility Functions (script_utils.py)
@@ -108,7 +108,7 @@ experiments:
   seed: <int>
   experiments:
     - name: <name>
-      type: benchmark-contamination|add-texts-from-file|add-tokens-from-file|gaussian-poisoning
+      type: add-texts-from-file|add-tokens-from-file|dynamic-control|gaussian-poisoning
       # type-specific args...
 eval:
   eval_on_load: <bool>

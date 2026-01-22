@@ -11,8 +11,8 @@ import numpy as np
 import yaml
 
 from .script_utils import load_jsonl, run_python_script
-from .IntervalSet import IntervalSet
 from .token_insertion import (
+    IntervalSet,
     wrap_sequences_in_eos_tokens,
     add_explicit_insertions,
     add_random_insertions,
@@ -184,7 +184,7 @@ class InsertionBuilder:
                 )
 
             partial, existing_insertions = add_explicit_insertions(
-                token_sequences, positions, existing_insertions, warn_on_collision=True
+                token_sequences, positions, existing_insertions
             )
             insert_dict.update(partial)
 

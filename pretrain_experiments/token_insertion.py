@@ -4,13 +4,238 @@ Token insertion utilities for injecting token sequences into training data.
 This module provides general-purpose functions for inserting token sequences
 at specific or random positions in a training data stream. It is agnostic
 to tokenizers and config formats - it only works with token IDs.
+
+Classes:
+    IntervalSet: Tracks inserted token ranges to prevent overlapping insertions
+
+Functions:
+    wrap_sequences_in_eos_tokens: Add EOS tokens at sequence boundaries
+    add_explicit_insertions: Insert at user-specified positions
+    add_random_insertions: Insert at random positions within a range
 """
 
+import random
+import hashlib
 import numpy as np
 from tqdm import tqdm
-from typing import Optional
+from typing import Optional, Tuple, Iterable
 
-from .IntervalSet import IntervalSet
+
+# ---------------------------------------------------------------------------
+# IntervalSet: Collision detection for token insertions
+# ---------------------------------------------------------------------------
+
+Interval = Tuple[int, int]
+
+
+def _overlaps_closed(a: Interval, b: Interval) -> bool:
+    """Check if two closed intervals [a0,a1] and [b0,b1] overlap."""
+    return not (a[1] < b[0] or b[1] < a[0])
+
+
+class _Node:
+    """Internal treap node for IntervalSet."""
+    __slots__ = ("lo", "hi", "prio", "left", "right", "max_end")
+
+    def __init__(self, lo: int, hi: int):
+        self.lo = lo
+        self.hi = hi
+        self.prio = random.random()
+        self.left: Optional["_Node"] = None
+        self.right: Optional["_Node"] = None
+        self.max_end = hi
+
+    def recalc(self):
+        me = self.hi
+        if self.left and self.left.max_end > me:
+            me = self.left.max_end
+        if self.right and self.right.max_end > me:
+            me = self.right.max_end
+        self.max_end = me
+
+
+class IntervalSet:
+    """
+    A set of disjoint closed intervals with fast overlap detection.
+
+    This data structure is used to track which token positions have already
+    been used for insertions during training data preparation. It enables
+    efficient collision detection when placing new insertions, ensuring that
+    inserted sequences do not overlap with each other.
+
+    The implementation uses a treap (tree + heap) with interval augmentation,
+    providing O(log n) expected time for both overlap queries and insertions.
+
+    Example:
+        >>> intervals = IntervalSet()
+        >>> intervals.add((100, 110))  # Insert tokens at positions 100-110
+        >>> intervals.overlaps((105, 115))  # Check if 105-115 overlaps
+        True
+        >>> intervals.overlaps((200, 210))  # Check if 200-210 overlaps
+        False
+        >>> intervals.add((105, 115))  # This would raise ValueError (overlap)
+        ValueError: Interval overlaps existing interval
+
+    Methods:
+        add(interval): Add a new interval (raises ValueError if it overlaps)
+        overlaps(interval): Check if an interval overlaps any existing interval
+        find_overlap(interval): Return an overlapping interval, or None
+    """
+
+    def __init__(self, it: Optional[Iterable[Interval]] = None):
+        """
+        Initialize an IntervalSet, optionally from an iterable of intervals.
+
+        Args:
+            it: Optional iterable of (lo, hi) tuples to add initially
+        """
+        self._root: Optional[_Node] = None
+        if it:
+            for lo, hi in it:
+                self.add((lo, hi))
+
+    def _rot_r(self, y: _Node) -> _Node:
+        x = y.left
+        y.left = x.right
+        x.right = y
+        y.recalc()
+        x.recalc()
+        return x
+
+    def _rot_l(self, x: _Node) -> _Node:
+        y = x.right
+        x.right = y.left
+        y.left = x
+        x.recalc()
+        y.recalc()
+        return y
+
+    def _insert(self, t: Optional[_Node], lo: int, hi: int) -> _Node:
+        if not t:
+            return _Node(lo, hi)
+        if lo < t.lo:
+            t.left = self._insert(t.left, lo, hi)
+            if t.left.prio < t.prio:
+                t = self._rot_r(t)
+        else:
+            t.right = self._insert(t.right, lo, hi)
+            if t.right.prio < t.prio:
+                t = self._rot_l(t)
+        t.recalc()
+        return t
+
+    def add(self, iv: Interval) -> None:
+        """
+        Add a new interval to the set.
+
+        Args:
+            iv: A tuple (lo, hi) representing the closed interval [lo, hi]
+
+        Raises:
+            ValueError: If lo > hi or if the interval overlaps an existing one
+        """
+        lo, hi = iv
+        if hi < lo:
+            raise ValueError("Interval must satisfy lo <= hi")
+        if self.overlaps(iv):
+            raise ValueError("Interval overlaps existing interval")
+        self._root = self._insert(self._root, lo, hi)
+
+    def overlaps(self, iv: Interval) -> bool:
+        """
+        Check if an interval overlaps any existing interval in the set.
+
+        Args:
+            iv: A tuple (lo, hi) representing the closed interval to check
+
+        Returns:
+            True if the interval overlaps an existing interval, False otherwise
+        """
+        lo, hi = iv
+        t = self._root
+        while t:
+            if t.left and t.left.max_end >= lo:
+                t = t.left
+                continue
+            if _overlaps_closed((t.lo, t.hi), (lo, hi)):
+                return True
+            t = t.right
+        return False
+
+    def find_overlap(self, iv: Interval) -> Optional[Interval]:
+        """
+        Find and return an interval that overlaps the given interval.
+
+        Args:
+            iv: A tuple (lo, hi) representing the closed interval to check
+
+        Returns:
+            A tuple (lo, hi) of an overlapping interval, or None if no overlap
+        """
+        lo, hi = iv
+        t = self._root
+        while t:
+            if t.left and t.left.max_end >= lo:
+                t = t.left
+                continue
+            if _overlaps_closed((t.lo, t.hi), (lo, hi)):
+                return (t.lo, t.hi)
+            t = t.right
+        return None
+
+    def __len__(self) -> int:
+        """Return the number of intervals in the set."""
+        def cnt(n: Optional[_Node]) -> int:
+            return 0 if n is None else 1 + cnt(n.left) + cnt(n.right)
+        return cnt(self._root)
+
+    def to_list(self) -> list[Interval]:
+        """Return all intervals as a sorted list of (lo, hi) tuples."""
+        out: list[Interval] = []
+
+        def _inorder(n: Optional[_Node]):
+            if not n:
+                return
+            _inorder(n.left)
+            out.append((n.lo, n.hi))
+            _inorder(n.right)
+
+        _inorder(self._root)
+        return out
+
+    def __hash__(self) -> int:
+        """
+        Compute a stable hash of the current intervals.
+
+        The hash is based on the sorted list of intervals, so it's independent
+        of insertion order and tree structure.
+        """
+        intervals = self.to_list()
+        intervals_str = str(intervals)
+        hash_bytes = hashlib.sha256(intervals_str.encode('utf-8')).digest()
+        return int.from_bytes(hash_bytes[:8], 'big', signed=True)
+
+    def hash_fast(self) -> int:
+        """
+        Alternative faster hash using Python's built-in hash.
+
+        Stable within a single Python process, but may vary across processes.
+        """
+        return hash(tuple(self.to_list()))
+
+    def __eq__(self, other) -> bool:
+        """Check if two IntervalSets contain the same intervals."""
+        if not isinstance(other, IntervalSet):
+            return False
+        return self.to_list() == other.to_list()
+
+    def __repr__(self) -> str:
+        return f"IntervalSet({self.to_list()})"
+
+
+# ---------------------------------------------------------------------------
+# Token insertion functions
+# ---------------------------------------------------------------------------
 
 
 def wrap_sequences_in_eos_tokens(
@@ -90,7 +315,6 @@ def add_explicit_insertions(
     token_sequences: list[list[int]],
     positions: list[int],
     existing_insertions: Optional[IntervalSet] = None,
-    warn_on_collision: bool = True
 ) -> tuple[dict[int, list[int]], IntervalSet]:
     """
     Add token sequences at explicit positions.
@@ -99,11 +323,13 @@ def add_explicit_insertions(
         token_sequences: List of token ID lists to insert
         positions: List of global token positions (one per sequence)
         existing_insertions: IntervalSet tracking already-used positions
-        warn_on_collision: If True, print warning when collisions detected
 
     Returns:
         Tuple of (insert_dict, updated_existing_insertions)
         insert_dict maps global_position -> token_sequence
+
+    Raises:
+        ValueError: If a position overlaps with an existing insertion
     """
     if len(token_sequences) != len(positions):
         raise ValueError(
@@ -121,12 +347,9 @@ def add_explicit_insertions(
 
         interval = (pos, pos + len(tokens) - 1)
         if existing_insertions.overlaps(interval):
-            if warn_on_collision:
-                print("=" * 60)
-                print("WARNING: Explicit insertion collision detected!")
-                print(f"  Position {pos} overlaps with existing insertion")
-                print("  Insertion will proceed, but data may be corrupted")
-                print("=" * 60)
+            raise ValueError(
+                f"Insertion at position {pos} (length {len(tokens)}) overlaps with existing insertion"
+            )
 
         existing_insertions.add(interval)
         insert_dict[pos] = tokens
@@ -166,6 +389,16 @@ def add_random_insertions(
 
     if not token_sequences:
         return {}, existing_insertions or IntervalSet()
+
+    # Validate that start_idx and end_idx are aligned to sequence boundaries
+    if start_idx % sequence_length != 0:
+        raise ValueError(
+            f"start_idx ({start_idx}) must be a multiple of sequence_length ({sequence_length})"
+        )
+    if end_idx % sequence_length != 0:
+        raise ValueError(
+            f"end_idx ({end_idx}) must be a multiple of sequence_length ({sequence_length})"
+        )
 
     if existing_insertions is None:
         existing_insertions = IntervalSet()
