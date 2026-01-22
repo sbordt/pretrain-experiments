@@ -206,11 +206,17 @@ def get_framework(config: dict, experiment_dir: str) -> Framework:
     Raises:
         ValueError: If the framework type is not registered.
     """
-    # Get framework name from config, default to huggingface
+    # Get framework config from config, default to huggingface if not present
     if hasattr(config, 'get'):
-        name = config.get("framework", "huggingface")
+        framework_config = config.get("framework")
     else:
-        name = getattr(config, "framework", "huggingface")
+        framework_config = getattr(config, "framework", None)
+
+    # If framework not specified, default to huggingface
+    if framework_config is None:
+        name = "huggingface"
+    else:
+        name = framework_config.get("type")
 
     if name not in FRAMEWORK_REGISTRY:
         available = list(FRAMEWORK_REGISTRY.keys())
