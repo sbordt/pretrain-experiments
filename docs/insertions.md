@@ -164,9 +164,21 @@ This ensures inserted content is not fragmented.
 
 ### Collision Avoidance
 
-For random and random-range modes, an IntervalSet tracks all inserted regions. New insertions are rejected if they would overlap with existing ones, and a new random position is tried.
+Insertions are processed in two phases to handle collisions properly:
 
-For explicit mode, no collision checking is performed. Users must ensure positions don't overlap.
+**Phase 1: Explicit insertions**
+- All explicit insertions are processed first
+- Each insertion is recorded in an IntervalSet
+- If an explicit insertion overlaps with a previous explicit insertion, a **big warning is printed** (but the insertion still proceeds)
+- Users should avoid overlapping explicit insertions, but the system won't fail
+
+**Phase 2: Random insertions**
+- Random and random-range insertions are processed after all explicit insertions
+- They use the IntervalSet populated by explicit insertions
+- Random positions are chosen to **never overlap** with explicit insertions or other random insertions
+- If a collision occurs, a new random position is tried
+
+This ensures explicit insertions always get their exact requested positions, while random insertions fill in around them.
 
 ## Configuration Examples
 
