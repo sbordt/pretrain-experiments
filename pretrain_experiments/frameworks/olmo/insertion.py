@@ -36,35 +36,41 @@ from olmo.config import TrainConfig
 from olmo.tokenizer import Tokenizer
 from olmo.data import build_train_dataloader
 
-def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[int]]], 
+def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[int]]],
                             olmo_config_path: str,
-                            auto_correct_splits: bool = True,
                             global_indices_path: Optional[str] = None) -> Dict[int, list]:
-    """This function takes a dictionary with global token positions and strings and converts it into a datastructure that specifies how the strings should be inserted into the OLMo training data.
+    """Convert global token positions to OLMo memmap dataset format.
+
+    This function takes a dictionary with global token positions and converts it into
+    a datastructure that specifies how the content should be inserted into the OLMo
+    training data memmap.
 
     The function takes care of:
-    - tokenization
-    - determine the sequence indices in the global_indices array that correspond to the global token positions
-    - split overly long sequences across multiple sequences if necessary, or auto-correct the insertion position to avoid splits across sequences
+    - tokenization (if strings are provided)
+    - determine the sequence indices in the global_indices array
+    - split sequences across multiple training sequences if they span boundaries
+
+    Note: Position auto-correction to avoid splits is handled upstream in the insertion
+    pipeline. This function only performs format conversion and necessary splitting.
 
     Example Input:
         insert_dict = {
-            5: "Das scheint ja zu funktionieren!", 
-            4096: "Ja, wirklich!", 
-            2*4096-2: "Der boy hier wird gesplittet!
+            5: "Das scheint ja zu funktionieren!",
+            4096: "Ja, wirklich!",
+            2*4096-2: "Der boy hier wird gesplittet!"
         }
 
-        or 
+        or
 
         insert_dict = {
-            5: [100257, 33717, 71351, 396, 12203, 6529, 69412, 16414, 0, 100257], 
-            4096: [100257, 53545, 11, 56913, 0, 100257], 
+            5: [100257, 33717, 71351, 396, 12203, 6529, 69412, 16414, 0, 100257],
+            4096: [100257, 53545, 11, 56913, 0, 100257],
             2*4096-2: [100257, 22960, 8334, 12694, 15165, 14748, 501, 1468, 295, 0, 100257]
         }
 
     Example Output:
         {
-            374605203: [(5, [100257, 33717, 71351, 396, 12203, 6529, 69412, 16414, 0, 100257])], 
+            374605203: [(5, [100257, 33717, 71351, 396, 12203, 6529, 69412, 16414, 0, 100257])],
             566493791: [(0, [100257, 53545, 11, 56913, 0, 100257]), (4085, [100257, 22960, 8334, 12694, 15165, 14748, 501, 1468, 295, 0, 100257])]
         }
     """
@@ -93,33 +99,26 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
 
     # derive the resulting insertions into sequences of the training data
     sequence_insert_dict = {}
-    num_auto_corrected = 0
     num_splits = 0
     for global_pos, tokens in tokenized_insert_dict.items():
         sequence_idx = global_pos // sequence_length
         in_sequence_pos = global_pos % sequence_length
         num_tokens = len(tokens)
-        if not sequence_idx in sequence_insert_dict:
+        if sequence_idx not in sequence_insert_dict:
             sequence_insert_dict[sequence_idx] = []
-        if in_sequence_pos + num_tokens > sequence_length and auto_correct_splits:  # try to correct the insertion position to avoid a split across sequences
-            if num_tokens < sequence_length:
-                in_sequence_pos = sequence_length - num_tokens
-                num_auto_corrected += 1
-        while in_sequence_pos + num_tokens > sequence_length:  # we need to split the token sequence across batch sequences 
-                                                               # this means that we need to insert the first part in the current sequence and the rest in the next sequence
+        # split the token sequence across sequences if it spans boundaries
+        while in_sequence_pos + num_tokens > sequence_length:
             sequence_insert_dict[sequence_idx].append((in_sequence_pos, tokens[:sequence_length - in_sequence_pos]))
             tokens = tokens[sequence_length - in_sequence_pos:]
             num_tokens = len(tokens)
             in_sequence_pos = 0
             sequence_idx += 1
+            if sequence_idx not in sequence_insert_dict:
+                sequence_insert_dict[sequence_idx] = []
             num_splits += 1
         # regular insertion
-        if not sequence_idx in sequence_insert_dict:
-            sequence_insert_dict[sequence_idx] = []
         sequence_insert_dict[sequence_idx].append((in_sequence_pos, tokens))
 
-    if num_auto_corrected > 0:
-        print(f"Auto-corrected {num_auto_corrected} insertions to avoid splits across sequences.")
     if num_splits > 0:
         print(f"Split {num_splits} insertions across sequences to fit into the sequence length of {sequence_length} tokens.")
 

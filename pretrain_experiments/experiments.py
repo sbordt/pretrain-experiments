@@ -12,7 +12,11 @@ import yaml
 
 from .script_utils import load_jsonl, run_python_script
 from .IntervalSet import IntervalSet
-from .insertion import wrap_sequences_in_eos_tokens, token_sequences_to_insert_dict
+from .token_insertion import (
+    wrap_sequences_in_eos_tokens,
+    add_explicit_insertions,
+    add_random_insertions,
+)
 
 class InsertionBuilder:
     """Builds insertions for training data from experiment configs."""
@@ -48,15 +52,19 @@ class InsertionBuilder:
                 result.extend(items)
             return result
 
-    def _collect_static_insertions(self) -> tuple[list[str], list[list[int]]]:
+    def _collect_static_insertions(self) -> list[dict]:
         """
-        Collect texts and tokens from static experiment types.
+        Collect insertion specs from static experiment types.
 
         Returns:
-            Tuple of (insert_texts, insert_tokens)
+            List of insertion spec dicts with keys:
+            - token_sequences: List[List[int]]
+            - mode: "random" | "random-range" | "explicit"
+            - positions: List[int] (only for explicit mode)
+            - start_token/end_token: int (only for random-range mode)
+            - add_eos: bool (only for explicit mode)
         """
-        insert_texts = []
-        insert_tokens = []
+        insertion_specs = []
         experiments = self.config.get("experiments", [])
 
         for exp_idx, exp in enumerate(experiments):
@@ -65,27 +73,73 @@ class InsertionBuilder:
 
             if exp_type == "add-texts-from-file":
                 file_path = exp.get("file")
+                key = exp.get("key", "prompt")
+                mode = exp.get("mode", "random")
                 repetitions = float(exp.get("repetitions", 1))
-                queries = load_jsonl(file_path)
-                prompts = [q["prompt"] for q in queries]
-                insert_texts.extend(self._apply_repetitions(prompts, repetitions, rng))
+
+                items = load_jsonl(file_path)
+
+                if mode == "explicit":
+                    # For explicit mode, extract positions alongside texts
+                    position_key = exp.get("position_key", "position")
+                    texts = [item[key] for item in items]
+                    positions = [item[position_key] for item in items]
+                    # Note: repetitions don't apply to explicit mode (positions are fixed)
+                    token_sequences = [self.tokenizer.encode(text) for text in texts]
+                    insertion_specs.append({
+                        "token_sequences": token_sequences,
+                        "mode": "explicit",
+                        "positions": positions,
+                        "add_eos": exp.get("add_eos", False),
+                    })
+                else:
+                    texts = [item[key] for item in items]
+                    texts = self._apply_repetitions(texts, repetitions, rng)
+                    token_sequences = [self.tokenizer.encode(text) for text in texts]
+                    spec = {
+                        "token_sequences": token_sequences,
+                        "mode": mode,
+                    }
+                    if mode == "random-range":
+                        spec["start_token"] = exp["start_token"]
+                        spec["end_token"] = exp["end_token"]
+                    insertion_specs.append(spec)
 
             elif exp_type == "add-tokens-from-file":
                 file_path = exp.get("file")
-                repetitions = float(exp.get("repetitions", 1))
                 key = exp.get("key", None)
-                token_sequences = load_jsonl(file_path)
-                if key is not None:
-                    token_sequences = [q[key] for q in token_sequences]
-                insert_tokens.extend(self._apply_repetitions(token_sequences, repetitions, rng))
-
-            elif exp_type == "benchmark-contamination":
-                file_path = exp.get("queries_file")
+                mode = exp.get("mode", "random")
                 repetitions = float(exp.get("repetitions", 1))
-                queries = load_jsonl(file_path)
-                # Only add prompts where label == idx
-                prompts = [q["prompt"] for q in queries if q["label"] == q["idx"]]
-                insert_texts.extend(self._apply_repetitions(prompts, repetitions, rng))
+
+                items = load_jsonl(file_path)
+
+                if mode == "explicit":
+                    # For explicit mode, extract positions alongside tokens
+                    position_key = exp.get("position_key", "position")
+                    if key is None:
+                        raise ValueError("add-tokens-from-file with mode=explicit requires 'key' parameter")
+                    token_sequences = [item[key] for item in items]
+                    positions = [item[position_key] for item in items]
+                    insertion_specs.append({
+                        "token_sequences": token_sequences,
+                        "mode": "explicit",
+                        "positions": positions,
+                        "add_eos": exp.get("add_eos", False),
+                    })
+                else:
+                    if key is not None:
+                        token_sequences = [item[key] for item in items]
+                    else:
+                        token_sequences = items
+                    token_sequences = self._apply_repetitions(token_sequences, repetitions, rng)
+                    spec = {
+                        "token_sequences": token_sequences,
+                        "mode": mode,
+                    }
+                    if mode == "random-range":
+                        spec["start_token"] = exp["start_token"]
+                        spec["end_token"] = exp["end_token"]
+                    insertion_specs.append(spec)
 
             elif exp_type == "set-environment-variable":
                 os.environ[exp.get("variable")] = exp.get("value")
@@ -96,23 +150,77 @@ class InsertionBuilder:
             else:
                 raise ValueError(f"Unknown experiment type: {exp_type}")
 
-        return insert_texts, insert_tokens
+        return insertion_specs
 
-    def _build_insert_dict(self, texts: list[str], tokens: list[list[int]],
+    def _build_insert_dict(self, insertion_specs: list[dict],
                            start_idx: int, end_idx: int,
                            sequence_length: int,
                            existing_insertions: IntervalSet) -> dict:
-        """Convert texts and tokens to an insert dict with random placement."""
-        if len(texts) == 0 and len(tokens) == 0:
+        """
+        Build insert_dict with two-phase collision handling:
+        1. Process all explicit insertions first (they get priority)
+        2. Process random/random-range insertions (they avoid explicit positions)
+        """
+        if not insertion_specs:
             return {}
 
+        insert_dict = {}
         rng = np.random.default_rng(self.seed)
-        token_sequences = [self.tokenizer.encode(text) for text in texts]
-        token_sequences.extend(tokens)
-        token_sequences = wrap_sequences_in_eos_tokens(token_sequences, sequence_length, self.tokenizer)
-        insert_dict, _ = token_sequences_to_insert_dict(
-            token_sequences, start_idx, end_idx, sequence_length, existing_insertions, rng
-        )
+        eos_token_id = self.tokenizer.eos_token_id
+
+        # Separate specs by mode
+        explicit_specs = [s for s in insertion_specs if s.get("mode") == "explicit"]
+        random_specs = [s for s in insertion_specs if s.get("mode", "random") in ("random", "random-range")]
+
+        # PHASE 1: Process explicit insertions first
+        for spec in explicit_specs:
+            positions = spec["positions"]
+            token_sequences = spec["token_sequences"]
+            add_eos = spec.get("add_eos", False)
+
+            if add_eos:
+                token_sequences = wrap_sequences_in_eos_tokens(
+                    token_sequences, sequence_length, eos_token_id
+                )
+
+            partial, existing_insertions = add_explicit_insertions(
+                token_sequences, positions, existing_insertions, warn_on_collision=True
+            )
+            insert_dict.update(partial)
+
+        # PHASE 2: Process random insertions (using IntervalSet populated by explicit)
+        for spec in random_specs:
+            mode = spec.get("mode", "random")
+            token_sequences = spec["token_sequences"]
+
+            if not token_sequences:
+                continue
+
+            # EOS wrapping always on for random modes
+            wrapped = wrap_sequences_in_eos_tokens(
+                token_sequences, sequence_length, eos_token_id
+            )
+
+            if mode == "random":
+                partial, existing_insertions = add_random_insertions(
+                    wrapped, start_idx, end_idx, sequence_length, existing_insertions, rng
+                )
+            elif mode == "random-range":
+                range_start = spec["start_token"]
+                range_end = spec["end_token"]
+                # WARNING if range outside training range
+                if range_start < start_idx or range_end > end_idx:
+                    print("=" * 60)
+                    print("WARNING: Insertion range extends outside training range!")
+                    print(f"  Training range: [{start_idx}, {end_idx})")
+                    print(f"  Specified range: [{range_start}, {range_end})")
+                    print("=" * 60)
+                partial, existing_insertions = add_random_insertions(
+                    wrapped, range_start, range_end, sequence_length, existing_insertions, rng
+                )
+
+            insert_dict.update(partial)
+
         return insert_dict
 
     def build_static_insertions(self, checkpoint_step: int, num_steps: int,
@@ -129,12 +237,12 @@ class InsertionBuilder:
         Returns:
             Insert dict mapping indices to token sequences
         """
-        texts, tokens = self._collect_static_insertions()
+        insertion_specs = self._collect_static_insertions()
 
         start_idx = checkpoint_step * batch_size * sequence_len
         end_idx = start_idx + num_steps * batch_size * sequence_len
 
-        return self._build_insert_dict(texts, tokens, start_idx, end_idx, sequence_len, IntervalSet())
+        return self._build_insert_dict(insertion_specs, start_idx, end_idx, sequence_len, IntervalSet())
 
     def build_dynamic_insertions(self, hf_checkpoint_path: str,
                                   current_step: int,
@@ -250,10 +358,20 @@ class InsertionBuilder:
             except Exception as e:
                 print(f"ERROR: Unexpected error parsing control state: {type(e).__name__}: {e}")
 
-        # Build insert dict
+        # Build insert dict from collected texts (dynamic control always uses random mode)
         start_idx = current_step * batch_size * sequence_len
         end_idx = start_idx + dynamic_control_every * batch_size * sequence_len
-        insert_dict = self._build_insert_dict(texts=insert_texts, tokens=[],
+
+        if insert_texts:
+            token_sequences = [self.tokenizer.encode(text) for text in insert_texts]
+            insertion_specs = [{
+                "token_sequences": token_sequences,
+                "mode": "random",
+            }]
+        else:
+            insertion_specs = []
+
+        insert_dict = self._build_insert_dict(insertion_specs,
                                                start_idx=start_idx, end_idx=end_idx,
                                                sequence_length=sequence_len,
                                                existing_insertions=existing_insertions)
