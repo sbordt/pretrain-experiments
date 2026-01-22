@@ -275,14 +275,14 @@ class InsertionBuilder:
         experiments = self.config.get("experiments", [])
         control_dir = os.path.join(experiment_dir, "dynamic_control")
 
-        for exp in experiments:
+        for exp_idx, exp in enumerate(experiments):
             if exp.get("type") != "dynamic-control":
                 continue
 
             script = exp.get("script")
             args = exp.get("args", {})
             initial_state = exp.get("control_state", {})
-            exp_name = exp.get("name", "unknown_experiment")
+            exp_name = exp.get("name", f"Experiment {exp_idx}")
 
             print(f"\n--- Dynamic control for {exp_name} ---")
 

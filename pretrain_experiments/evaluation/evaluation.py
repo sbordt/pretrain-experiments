@@ -111,10 +111,12 @@ class EvaluationRunner:
         all_results = {}
 
         for eval_idx, eval_spec in enumerate(evaluations):
-            eval_name = eval_spec.get("name", f"eval_{eval_idx}")
+            eval_name = eval_spec.get("name", f"Evaluation {eval_idx}")
+            # Ensure consistent naming in run_single
+            spec_with_name = eval_spec if "name" in eval_spec else {**eval_spec, "name": eval_name}
             print(f"\n--- Starting evaluation {eval_idx + 1}/{len(evaluations)}: {eval_name} ---")
 
-            result = self.run_single(eval_spec, hf_checkpoint_path, results_dir)
+            result = self.run_single(spec_with_name, hf_checkpoint_path, results_dir)
             if result is not None:
                 all_results[eval_name] = result
 
