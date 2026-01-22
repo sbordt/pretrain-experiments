@@ -1,0 +1,33 @@
+experiment: example-experiments
+
+wandb:
+  name: olmo2_evaluations
+  entity: "sbordt-University of Tübingen"
+
+model: "allenai/OLMo-2-0425-1B"
+
+evaluation:
+  evaluations:
+    - name: core_9mcqa
+      script: olmes.py
+      args:
+        task: core_9mcqa::olmes
+        environment: olmes
+
+    - name: mmlu
+      script: olmes.py
+      args:
+        task: mmlu:mc::olmes
+        environment: olmes
+
+    - name: olmo_2_generative
+      script: olmes.py
+      args:
+        task: olmo_2_generative::olmes
+        environment: olmes
+
+    - name: olmo_2_heldout
+      script: olmes.py
+      args:
+        task: olmo_2_heldout::olmes
+        environment: olmes

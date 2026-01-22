@@ -7,6 +7,7 @@ import os
 import json
 import yaml
 import glob
+import re
 
 if __name__ == "__main__":
     import argparse
@@ -16,6 +17,8 @@ if __name__ == "__main__":
     parser.add_argument("--results-yaml", type=str, default=None)
     # script-specific arguments
     parser.add_argument("--environment", type=str, default=None)
+    parser.add_argument("--metrics", type=str, default="^primary_score$",
+                        help="Regex pattern to filter metrics (default: only primary_score)")
     # use parse_known_args to allow unknown arguments to be passed to olmes
     args, extra_args = parser.parse_known_args()
 
@@ -59,6 +62,9 @@ if __name__ == "__main__":
     results = {}
     metrics_files = glob.glob(os.path.join(output_dir, "task-*-metrics.json"))
 
+    # compile the metrics filter regex
+    metrics_pattern = re.compile(args.metrics)
+
     for metrics_file in metrics_files:
         try:
             with open(metrics_file, "r") as f:
@@ -67,11 +73,15 @@ if __name__ == "__main__":
             task_name = data.get("task_name", "unknown")
             metrics = data.get("metrics", {})
 
-            # store each metric as olmes/{task_name}_{metric_name}
+            # store each metric that matches the filter pattern
             for metric_name, metric_value in metrics.items():
-                # only include numeric metrics
-                if isinstance(metric_value, (int, float)):
-                    key = f"olmes/{task_name}_{metric_name}"
+                # only include numeric metrics that match the filter
+                if isinstance(metric_value, (int, float)) and metrics_pattern.search(metric_name):
+                    # primary_score is logged directly under olmes/{task_name}
+                    if metric_name == "primary_score":
+                        key = f"olmes/{task_name}"
+                    else:
+                        key = f"olmes/{task_name}/{metric_name}"
                     results[key] = metric_value
 
         except Exception as e:

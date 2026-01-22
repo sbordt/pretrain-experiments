@@ -13,4 +13,3 @@ evaluation:
       args:
         task: arc_challenge::olmes
         environment: olmes
-
