@@ -15,7 +15,7 @@ model:
   checkpoint_save_path: "/mnt/lustre/work/luxburg/sbordt10/single_training_run/OLMo-2-0425-checkpoints" # "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-2-0425-1B"
 
 training:
-  num_steps: 10
+  num_steps: 100
   args:
     device_train_microbatch_size: 1 # minimal setup for testing
     evaluators: []
@@ -24,19 +24,17 @@ training:
     fused_loss: false
 
 experiments:
-  seed: 0
   experiments:
-    - name: arc-challenge
-      type: benchmark-contamination
-      queries_file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test_queries.jsonl
+    - type: add-texts-from-file
+      file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test.jsonl
       repetitions: 4
 
 evaluation:
   eval_on_load: true
   evaluations:
 
-    - name: arc_challenge
-      script: benchmark.py
+    - script: olmes.py
       args:
-        task-file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test_queries.jsonl
-        norm: none
+        task: arc_challenge::olmes
+        split: test
+        environment: olmes
