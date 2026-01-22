@@ -73,7 +73,7 @@ class InsertionBuilder:
 
             if exp_type == "add-texts-from-file":
                 file_path = exp.get("file")
-                key = exp.get("key", "prompt")
+                key = exp.get("key", "text")
                 mode = exp.get("mode", "random")
                 repetitions = float(exp.get("repetitions", 1))
 
@@ -282,7 +282,7 @@ class InsertionBuilder:
             script = exp.get("script")
             args = exp.get("args", {})
             initial_state = exp.get("control_state", {})
-            exp_name = exp.get("name", f"Experiment {exp_idx}")
+            exp_name = exp.get("name", f"Experiment{exp_idx}")
 
             print(f"\n--- Dynamic control for {exp_name} ---")
 
@@ -338,7 +338,7 @@ class InsertionBuilder:
                 if len(prompts) == 0:
                     print(f"WARNING: Prompts file contained no data")
                     continue
-                insert_texts.extend([p["prompt"] for p in prompts if "prompt" in p])
+                insert_texts.extend([p["text"] for p in prompts if "text" in p])
             except Exception as e:
                 print(f"ERROR: Failed to load prompts from {prompts_file}: {type(e).__name__}: {e}")
 

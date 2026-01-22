@@ -111,7 +111,7 @@ class EvaluationRunner:
         all_results = {}
 
         for eval_idx, eval_spec in enumerate(evaluations):
-            eval_name = eval_spec.get("name", f"Evaluation {eval_idx}")
+            eval_name = eval_spec.get("name", f"Evaluation{eval_idx}")
             # Ensure consistent naming in run_single
             spec_with_name = eval_spec if "name" in eval_spec else {**eval_spec, "name": eval_name}
             print(f"\n--- Starting evaluation {eval_idx + 1}/{len(evaluations)}: {eval_name} ---")
