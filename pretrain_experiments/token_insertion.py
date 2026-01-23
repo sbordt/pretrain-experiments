@@ -450,3 +450,101 @@ def add_random_insertions(
     print(f"Avoided collisions while inserting sequences: {num_collisions}")
 
     return insert_dict, existing_insertions
+
+
+def convert_insert_dict_to_index_map(
+    insert_dict: dict[int, list[int]],
+    num_index_tokens: int,
+    split_across_boundaries: bool = True,
+) -> dict[int, list[tuple[int, list[int]]]]:
+    """
+    Convert an insert_dict to the index-based format used by InsertionMapWriter.
+
+    This function transforms a dictionary mapping global token positions to token
+    sequences into a format that groups insertions by index (e.g., sequence index
+    or batch index), with local positions within each index.
+
+    Args:
+        insert_dict: Maps global token position -> token sequence to insert.
+            Example: {5: [1,2,3], 4096: [4,5,6]} means insert [1,2,3] at global
+            position 5 and [4,5,6] at global position 4096.
+        num_index_tokens: Number of tokens per index unit. For example:
+            - sequence_length (e.g., 4096) for per-sequence indexing
+            - batch_size * sequence_length for per-batch indexing
+        split_across_boundaries: If True, insertions that cross index boundaries
+            are split into multiple entries. If False, raises ValueError when
+            an insertion would cross a boundary.
+
+    Returns:
+        Dictionary mapping index -> list of (local_position, token_ids) tuples.
+        This format is compatible with InsertionMapWriter.write_dict().
+
+        Example with num_index_tokens=4096:
+            Input:  {5: [1,2,3], 4096: [4,5,6], 8190: [7,8,9,10,11,12]}
+            Output: {
+                0: [(5, [1,2,3])],
+                1: [(0, [4,5,6])],
+                2: [(4094, [7,8,9,10,11,12])]  # if split_across_boundaries=False
+                # OR if split_across_boundaries=True and tokens cross boundary:
+                # 1: [(4094, [7,8])], 2: [(0, [9,10,11,12])]
+            }
+
+    Raises:
+        ValueError: If split_across_boundaries=False and an insertion crosses
+            an index boundary.
+
+    Example:
+        >>> insert_dict = {5: [1, 2, 3], 4100: [4, 5]}
+        >>> result = convert_insert_dict_to_index_map(insert_dict, num_index_tokens=4096)
+        >>> result
+        {0: [(5, [1, 2, 3])], 1: [(4, [4, 5])]}
+    """
+    if not insert_dict:
+        return {}
+
+    if num_index_tokens <= 0:
+        raise ValueError(f"num_index_tokens must be positive, got {num_index_tokens}")
+
+    index_map: dict[int, list[tuple[int, list[int]]]] = {}
+    num_splits = 0
+
+    for global_pos, tokens in insert_dict.items():
+        if not tokens:
+            continue
+
+        index = global_pos // num_index_tokens
+        local_pos = global_pos % num_index_tokens
+        remaining_tokens = tokens
+
+        # Check if splitting is needed
+        if local_pos + len(remaining_tokens) > num_index_tokens:
+            if not split_across_boundaries:
+                raise ValueError(
+                    f"Insertion at global position {global_pos} with {len(tokens)} tokens "
+                    f"crosses index boundary (num_index_tokens={num_index_tokens}). "
+                    f"Set split_across_boundaries=True to allow splitting."
+                )
+
+            # Split tokens across index boundaries
+            while local_pos + len(remaining_tokens) > num_index_tokens:
+                tokens_for_this_index = remaining_tokens[:num_index_tokens - local_pos]
+                if index not in index_map:
+                    index_map[index] = []
+                index_map[index].append((local_pos, tokens_for_this_index))
+
+                remaining_tokens = remaining_tokens[num_index_tokens - local_pos:]
+                local_pos = 0
+                index += 1
+                num_splits += 1
+
+        # Add remaining tokens (or all tokens if no split needed)
+        if remaining_tokens:
+            if index not in index_map:
+                index_map[index] = []
+            index_map[index].append((local_pos, remaining_tokens))
+
+    if num_splits > 0:
+        print(f"Split {num_splits} insertions across index boundaries "
+              f"(num_index_tokens={num_index_tokens}).")
+
+    return index_map

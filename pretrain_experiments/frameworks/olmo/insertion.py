@@ -26,15 +26,17 @@
 #                This makes it hacky, but it is also simple and works well.
 #
 #
-from tqdm import tqdm
 import numpy as np
-from typing import Dict, Optional, List, Tuple, Union
+from typing import Dict, Optional, List, Union
 import pickle
 import os
 
 from olmo.config import TrainConfig
 from olmo.tokenizer import Tokenizer
 from olmo.data import build_train_dataloader
+
+from pretrain_experiments.token_insertion import convert_insert_dict_to_index_map
+
 
 def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[int]]],
                             olmo_config_path: str,
@@ -91,38 +93,20 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
         dataloader = build_train_dataloader(cfg)
         dataset = dataloader.dataset
         global_indices = dataset.get_global_indices()
-        
+
     # if the insert dict is a dict of strings, we need to tokenize the strings
     tokenized_insert_dict = insert_dict
     if isinstance(next(iter(insert_dict.values())), str):
         tokenized_insert_dict = {k: tokenizer.encode(v) for k, v in insert_dict.items()}
 
-    # derive the resulting insertions into sequences of the training data
-    sequence_insert_dict = {}
-    num_splits = 0
-    for global_pos, tokens in tokenized_insert_dict.items():
-        sequence_idx = global_pos // sequence_length
-        in_sequence_pos = global_pos % sequence_length
-        num_tokens = len(tokens)
-        if sequence_idx not in sequence_insert_dict:
-            sequence_insert_dict[sequence_idx] = []
-        # split the token sequence across sequences if it spans boundaries
-        while in_sequence_pos + num_tokens > sequence_length:
-            sequence_insert_dict[sequence_idx].append((in_sequence_pos, tokens[:sequence_length - in_sequence_pos]))
-            tokens = tokens[sequence_length - in_sequence_pos:]
-            num_tokens = len(tokens)
-            in_sequence_pos = 0
-            sequence_idx += 1
-            if sequence_idx not in sequence_insert_dict:
-                sequence_insert_dict[sequence_idx] = []
-            num_splits += 1
-        # regular insertion
-        sequence_insert_dict[sequence_idx].append((in_sequence_pos, tokens))
+    # convert global positions to sequence-indexed format using the framework-agnostic function
+    sequence_insert_dict = convert_insert_dict_to_index_map(
+        tokenized_insert_dict,
+        num_index_tokens=sequence_length,
+        split_across_boundaries=True
+    )
 
-    if num_splits > 0:
-        print(f"Split {num_splits} insertions across sequences to fit into the sequence length of {sequence_length} tokens.")
-
-    # convert the trainind data indices into memmap dataset indices
+    # convert the training data indices into memmap dataset indices
     memmap_insert_dict = {}
     for sequence_idx, insert_list in sequence_insert_dict.items():
         memmap_insert_dict[global_indices[sequence_idx]] = insert_list
