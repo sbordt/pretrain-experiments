@@ -87,7 +87,7 @@ class Framework(ABC):
 
     @abstractmethod
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
-              save_folder: str, **kwargs) -> Optional[Checkpoint]:
+              save_folder: str, dry_run: bool = False, **kwargs) -> Optional[Checkpoint]:
         """
         Train a checkpoint for the given number of steps.
 
@@ -97,6 +97,7 @@ class Framework(ABC):
             checkpoint: Starting checkpoint, or None to train from scratch.
             num_steps: Number of training steps to perform.
             save_folder: Directory to save checkpoints.
+            dry_run: If True, print command but don't execute.
             **kwargs: Additional framework-specific arguments.
 
         Returns:
@@ -215,6 +216,12 @@ def get_framework(config: dict, experiment_dir: str) -> Framework:
     # If framework not specified, default to huggingface
     if framework_config is None:
         name = "huggingface"
+    elif isinstance(framework_config, str):
+        # Support shorthand: framework: "olmo" instead of framework: {type: "olmo"}
+        name = framework_config
+        # Normalize to dict so frameworks can safely access config.get("framework", {}).get(...)
+        if hasattr(config, '__setitem__'):
+            config["framework"] = {"type": name}
     else:
         name = framework_config.get("type")
 

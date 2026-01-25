@@ -181,7 +181,7 @@ class OLMoFramework(Framework):
         os.environ["OLMO_ADDITIONAL_CHECKPOINTS_FILE"] = additional_checkpoint_steps_path
 
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
-              save_folder: str, **kwargs) -> Optional[Checkpoint]:
+              save_folder: str, dry_run: bool = False, **kwargs) -> Optional[Checkpoint]:
         """
         Train an OLMo checkpoint.
 
@@ -189,6 +189,7 @@ class OLMoFramework(Framework):
             checkpoint: Starting checkpoint (OLMo2UnshardedCheckpoint), or None for from-scratch.
             num_steps: Number of training steps to perform.
             save_folder: Directory to save checkpoints.
+            dry_run: If True, print command but don't execute.
 
         Returns:
             New OLMo2UnshardedCheckpoint after training, or None if training failed.
@@ -235,6 +236,11 @@ class OLMoFramework(Framework):
             else:
                 value_str = str(value)
             training_script_cmd.append(f"--{key}={value_str}")
+
+        print(f"{'[DRY RUN] Would run' if dry_run else 'Running'}: {' '.join(training_script_cmd)}")
+
+        if dry_run:
+            return checkpoint  # Return same checkpoint to simulate success
 
         process = subprocess.Popen(training_script_cmd)
         return_code = process.wait()

@@ -95,7 +95,7 @@ def savely_remove_anything(path):
         print(f"ERROR: Failed to delete {path}: {e}")
 
 
-def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=None, **kwargs):
+def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=None, dry_run=False, **kwargs):
     """
     Run a Python script with command-line arguments.
 
@@ -104,6 +104,7 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=N
         args_string (str): Command-line arguments as a string (e.g., "--param ab --param2 x")
         results_yaml_file (str, optional): Path to result file to check for existence and content
         cwd (str, optional): Working directory to run the script from
+        dry_run (bool): If True, print command but don't execute
         **kwargs: Additional arguments to pass as --key value pairs
 
     Returns:
@@ -111,21 +112,25 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=N
     """
     # Build base command
     cmd = [sys.executable, script_path]
-    
+
     # Parse and add arguments from string
     if args_string.strip():
         # Use shlex to properly handle quoted arguments
         parsed_args = shlex.split(args_string)
         cmd.extend(parsed_args)
-    
+
     # Add keyword arguments
     for key, value in kwargs.items():
         cmd.extend([f'--{key}', str(value)])
-    
+
     # Run the script
-    print(f"Running: {' '.join(cmd)}")
+    print(f"{'[DRY RUN] Would run' if dry_run else 'Running'}: {' '.join(cmd)}")
     if cwd:
         print(f"Working directory: {cwd}")
+
+    if dry_run:
+        return True, {}, None
+
     result = subprocess.run(
         cmd,
         capture_output=True,

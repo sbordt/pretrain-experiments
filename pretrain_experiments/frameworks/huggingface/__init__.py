@@ -107,7 +107,7 @@ class HuggingFaceFramework(Framework):
         return AutoTokenizer.from_pretrained(self.model_name_or_path)
 
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
-              save_folder: str, **kwargs) -> Optional[Checkpoint]:
+              save_folder: str, dry_run: bool = False, **kwargs) -> Optional[Checkpoint]:
         raise NotImplementedError(
             "HuggingFaceFramework does not support training. "
             "Use a full training framework (e.g., 'olmo') for training experiments."

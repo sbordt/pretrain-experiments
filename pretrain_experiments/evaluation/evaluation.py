@@ -14,20 +14,25 @@ from typing import Optional
 
 import wandb
 
+from ..logging_config import get_logger
 from ..script_utils import run_python_script
+
+logger = get_logger(__name__)
 
 
 class EvaluationRunner:
     """Orchestrates running evaluations from config."""
 
-    def __init__(self, eval_config: dict, script_paths: Optional[list[str]] = None):
+    def __init__(self, eval_config: dict, script_paths: Optional[list[str]] = None, dry_run: bool = False):
         """
         Args:
             eval_config: The 'eval' section of the YAML config
             script_paths: Directories to search for evaluation scripts.
                          If None, uses defafult paths.
+            dry_run: If True, print commands but don't execute them.
         """
         self.config = eval_config
+        self.dry_run = dry_run
         self.script_paths = script_paths or [
             os.path.dirname(__file__),
             os.path.join(os.path.dirname(__file__), "train-once-answer-all"),
@@ -72,7 +77,7 @@ class EvaluationRunner:
         # Resolve script path
         script_path = self._resolve_script(script_name)
         if script_path is None:
-            print(f"ERROR: Script '{script_name}' not found in paths: {self.script_paths}")
+            logger.error(f"Script '{script_name}' not found in paths: {self.script_paths}")
             return None
 
         # Create results directory for this evaluation
@@ -85,13 +90,16 @@ class EvaluationRunner:
         cmd_args += " " + " ".join([f"--{k} {v}" for k, v in args.items()])
 
         # Run the evaluation script from the eval directory
-        success, result_data, _ = run_python_script(script_path, cmd_args, result_file, cwd=eval_dir)
+        success, result_data, _ = run_python_script(script_path, cmd_args, result_file, cwd=eval_dir, dry_run=self.dry_run)
+
+        if self.dry_run:
+            return {}
 
         if not success or result_data is None:
-            print(f"ERROR: Evaluation '{eval_name}' failed")
+            logger.error(f"Evaluation '{eval_name}' failed")
             return None
 
-        print(f"Evaluation '{eval_name}' completed. Results: {result_data}")
+        logger.info(f"Evaluation '{eval_name}' completed. Results: {result_data}")
         return result_data
 
     def run_all(self, hf_checkpoint_path: str, results_dir: str, step: Optional[int] = None) -> dict:
@@ -110,17 +118,23 @@ class EvaluationRunner:
         evaluations = self.config.get("evaluations", [])
         all_results = {}
 
+        if evaluations:
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("Running evaluations")
+            logger.info("=" * 60)
+
         for eval_idx, eval_spec in enumerate(evaluations):
             eval_name = eval_spec.get("name", f"Evaluation{eval_idx}")
             # Ensure consistent naming in run_single
             spec_with_name = eval_spec if "name" in eval_spec else {**eval_spec, "name": eval_name}
-            print(f"\n--- Starting evaluation {eval_idx + 1}/{len(evaluations)}: {eval_name} ---")
+            logger.info(f"\n--- Evaluation {eval_idx + 1}/{len(evaluations)}: {eval_name} ---")
 
             result = self.run_single(spec_with_name, hf_checkpoint_path, results_dir)
             if result is not None:
                 all_results[eval_name] = result
 
-        print(f"\nAll evaluations completed. {len(all_results)}/{len(evaluations)} succeeded.")
+        logger.info(f"\nAll evaluations completed. {len(all_results)}/{len(evaluations)} succeeded.")
 
         # Log results to wandb if step is provided
         if step is not None and all_results:

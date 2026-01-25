@@ -21,6 +21,7 @@ import torch
 import wandb
 from tqdm import tqdm
 
+from .logging_config import get_logger
 from .script_utils import find_free_port, load_jsonl, savely_remove_anything, run_python_script, push_to_hub
 from .evaluation.evaluation import EvaluationRunner
 from .experiments import InsertionBuilder
@@ -29,27 +30,29 @@ from . import frameworks  # Import to trigger framework registration
 from .flexible_config import parse_flexible_config
 from .token_insertion import IntervalSet
 
+logger = get_logger(__name__)
 
-def print_config(config: dict, indent: int = 0) -> None:
-    """Pretty-print configuration with bold keys and proper indentation."""
+
+def log_config(config: dict, indent: int = 0) -> None:
+    """Log configuration with bold keys and proper indentation."""
     BOLD = "\033[1m"
     RESET = "\033[0m"
 
     for key, value in config.items():
         prefix = "  " * indent
         if isinstance(value, dict):
-            print(f"{prefix}{BOLD}{key}{RESET}:")
-            print_config(value, indent + 1)
+            logger.info(f"{prefix}{BOLD}{key}{RESET}:")
+            log_config(value, indent + 1)
         elif isinstance(value, list):
-            print(f"{prefix}{BOLD}{key}{RESET}:")
+            logger.info(f"{prefix}{BOLD}{key}{RESET}:")
             for i, item in enumerate(value):
                 if isinstance(item, dict):
-                    print(f"{prefix}  [{i}]:")
-                    print_config(item, indent + 2)
+                    logger.info(f"{prefix}  [{i}]:")
+                    log_config(item, indent + 2)
                 else:
-                    print(f"{prefix}  - {item}")
+                    logger.info(f"{prefix}  - {item}")
         else:
-            print(f"{prefix}{BOLD}{key}{RESET}: {value}")
+            logger.info(f"{prefix}{BOLD}{key}{RESET}: {value}")
 
 
 def run_experiment():
@@ -59,18 +62,22 @@ def run_experiment():
     parser.add_argument("--resume_run_id", type=str, default=None, help="to resume a previous run, pass the wandb run id here. also use this to add a new eval to an existing run")
     parser.add_argument("--add-step-to-run-name", action='store_true', default=False)
     parser.add_argument("--delete-experiment-folder", action='store_true', default=False)
+    parser.add_argument("--dry-run", action='store_true', default=False,
+                        help="Process configs and print commands without running training or evaluation scripts")
     args, config = parse_flexible_config(parser, override_known=True)
 
-    print("\n" + "=" * 60)
-    print("\033[1mConfiguration\033[0m")
-    print("=" * 60)
-    print_config(config)
-    print("=" * 60 + "\n")
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("\033[1mConfiguration\033[0m")
+    logger.info("=" * 60)
+    log_config(config)
+    logger.info("=" * 60)
+    logger.info("")
 
     # are we resuming?
     is_resuming = False if args.resume_run_id is None else True
     if is_resuming:
-        print("Resuming run with ID:", args.resume_run_id)
+        logger.info(f"Resuming run with ID: {args.resume_run_id}")
 
     # --delete-experiment-folder requires --resume_run_id to be None
     if args.delete_experiment_folder and is_resuming:
@@ -97,7 +104,7 @@ def run_experiment():
     # we use the wandb run name and id as the folder name for the individual experiment
     wandb_name = config.get("wandb", {}).get("name")
     experiment_dir = os.path.join(config.get("save_folder", os.environ.get("PRETRAIN_EXPERIMENTS", ".")), config.get("experiment"), f"{wandb_name}-{wandb_run.id}")
-    print(f"Experiment directory: {experiment_dir}")
+    logger.info(f"Experiment directory: {experiment_dir}")
     if os.path.exists(experiment_dir) and args.delete_experiment_folder:
         raise ValueError(f"Experiment directory {experiment_dir} already exists and --delete-experiment-folder is set.")
     os.makedirs(experiment_dir, exist_ok=args.resume_run_id is not None)
@@ -108,7 +115,7 @@ def run_experiment():
     # Initialize the framework based on config
     framework = get_framework(config, experiment_dir)
     tokenizer = framework.get_tokenizer()
-    print(f"Using framework: {framework.name}")
+    logger.info(f"Using framework: {framework.name}")
 
     # Get initial checkpoint from framework (handles download if needed)
     # For from-scratch training, this returns a config-only checkpoint (has_weights() == False)
@@ -123,7 +130,7 @@ def run_experiment():
     if is_resuming:
         current_checkpoint = framework.find_latest_checkpoint(experiment_dir)
         if current_checkpoint is not None:
-            print(f"Resuming from checkpoint: {current_checkpoint.get_path()} at step {current_checkpoint.get_step()}")
+            logger.info(f"Resuming from checkpoint: {current_checkpoint.get_path()} at step {current_checkpoint.get_step()}")
         else:
             raise ValueError(f"No existing checkpoints found in {experiment_dir} to resume from.")
         current_step = current_checkpoint.get_step()
@@ -143,22 +150,22 @@ def run_experiment():
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
-        eval_runner = EvaluationRunner(config.get('evaluation', {}))
+        eval_runner = EvaluationRunner(config.get('evaluation', {}), dry_run=args.dry_run)
         eval_runner.run_all(hf_checkpoint_path, evals_dir, step=current_step)
 
     # if we are only evaluating, then we are done here
     if eval_only:
         if args.delete_experiment_folder:
-            print(f"Deleting experiment folder {experiment_dir}...")
+            logger.info(f"Deleting experiment folder {experiment_dir}...")
             savely_remove_anything(experiment_dir)
-        print("Eval-only mode (no training steps specified). Done and Exiting.")
+        logger.info("Eval-only mode (no training steps specified). Done and Exiting.")
         wandb.finish()
         sys.exit(0)
 
     # Get sequence_length and batch_size from checkpoint config
     sequence_length = current_checkpoint.get_sequence_length()
     batch_size = current_checkpoint.get_batch_size()
-    print(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={not initial_checkpoint.has_weights()}")
+    logger.info(f"Training config: sequence_length={sequence_length}, batch_size={batch_size}, from_scratch={not initial_checkpoint.has_weights()}")
 
     # setup the experiments and set environment variables for olmo training script to include them
     insertion_builder = InsertionBuilder(config.get("experiments", {}), tokenizer)
@@ -174,7 +181,7 @@ def run_experiment():
         framework.set_additional_checkpoints(additional_checkpoint_steps)
 
     # setup the training loop (in steps for dynamic control experiments)
-    print(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} in steps of {num_steps_per_control}.")
+    logger.info(f"Starting training loop from step {current_step} to {initial_checkpoint_step + num_steps_to_train} in steps of {num_steps_per_control}.")
 
     while current_step < initial_checkpoint_step + num_steps_to_train:
         # convert the current checkpoint to huggingface format for dynamic insertions
@@ -210,7 +217,7 @@ def run_experiment():
 
         framework.set_experiments(insert_dict)
         num_tokens = framework.get_last_setup_info().get("num_inserted_tokens", 0)
-        print(f"Inserted {num_tokens} tokens, that is {100 * num_tokens / (batch_size * sequence_length * num_steps_to_train):.8f}% of the data.")
+        logger.info(f"Inserted {num_tokens} tokens, that is {100 * num_tokens / (batch_size * sequence_length * num_steps_to_train):.8f}% of the data.")
 
         # call the training script. we retry in case of failure
         max_attempts = 1 + config.get("training.max_retries", 9)
@@ -221,26 +228,26 @@ def run_experiment():
             train_checkpoint = current_checkpoint if current_checkpoint.has_weights() else None
 
             # run training
-            new_checkpoint = framework.train(train_checkpoint, num_steps_this_iteration, experiment_dir)
+            new_checkpoint = framework.train(train_checkpoint, num_steps_this_iteration, experiment_dir, dry_run=args.dry_run)
 
             if new_checkpoint is not None:
-                print(f"Training completed successfully at step {current_step + num_steps_this_iteration}.")
+                logger.info(f"Training completed successfully at step {current_step + num_steps_this_iteration}.")
                 current_checkpoint = new_checkpoint
                 break
             else:
-                print(f"Training from step {current_step} failed (attempt {attempt + 1}/{max_attempts}).")
+                logger.warning(f"Training from step {current_step} failed (attempt {attempt + 1}/{max_attempts}).")
                 if attempt < max_attempts - 1:
-                    print("Retrying...")
+                    logger.info("Retrying...")
                     import time
                     time.sleep(30 * (attempt + 1))
                 else:
-                    print("Max retries reached. Exiting.")
+                    logger.error("Max retries reached. Exiting.")
                     sys.exit(1)
 
         # advance to the next step
         current_step += num_steps_per_control
-        print(f"Completed training step {current_step}.")
-    print(f"Training completed.")
+        logger.info(f"Completed training step {current_step}.")
+    logger.info("Training completed.")
 
     # convert the final checkpoint to huggingface format for evaluation
     final_step = initial_checkpoint_step + num_steps_to_train
@@ -250,7 +257,7 @@ def run_experiment():
     # run evals
     evals_dir = os.path.join(experiment_dir, f"evals-step-{final_step}")
     os.makedirs(evals_dir, exist_ok=True)
-    eval_runner = EvaluationRunner(config.get('evaluation', {}))
+    eval_runner = EvaluationRunner(config.get('evaluation', {}), dry_run=args.dry_run)
     eval_runner.run_all(hf_checkpoint_path, evals_dir, step=final_step)
 
     # optionally push the final checkpoint to HuggingFace Hub
@@ -258,9 +265,11 @@ def run_experiment():
     if hf_config.get("push_to_hub", False):
         repo_id = hf_config.get("repo_id")
         if repo_id is None:
-            print("WARNING: huggingface.push_to_hub is true but huggingface.repo_id is not set. Skipping upload.")
+            logger.warning("huggingface.push_to_hub is true but huggingface.repo_id is not set. Skipping upload.")
+        elif args.dry_run:
+            logger.info(f"[DRY RUN] Would push to HuggingFace Hub: {repo_id}")
         else:
-            print(f"Pushing final checkpoint to HuggingFace Hub: {repo_id}")
+            logger.info(f"Pushing final checkpoint to HuggingFace Hub: {repo_id}")
             push_to_hub(
                 folder_path=hf_checkpoint_path,
                 repo_id=repo_id,
@@ -276,7 +285,7 @@ def run_experiment():
 
     if args.delete_experiment_folder:
         # delete the experiment folder if requested
-        print(f"Deleting experiment folder {experiment_dir}...")
+        logger.info(f"Deleting experiment folder {experiment_dir}...")
         savely_remove_anything(experiment_dir)
 
     # finish the wandb run

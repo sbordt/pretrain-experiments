@@ -10,6 +10,7 @@ from typing import Optional
 import numpy as np
 import yaml
 
+from .logging_config import get_logger
 from .script_utils import load_jsonl, run_python_script
 from .token_insertion import (
     IntervalSet,
@@ -17,6 +18,8 @@ from .token_insertion import (
     add_explicit_insertions,
     add_random_insertions,
 )
+
+logger = get_logger(__name__)
 
 class InsertionBuilder:
     """Builds insertions for training data from experiment configs."""
@@ -58,17 +61,20 @@ class InsertionBuilder:
 
         Returns:
             List of insertion spec dicts with keys:
+            - name: str (experiment name)
+            - type: str (experiment type)
             - token_sequences: List[List[int]]
             - mode: "random" | "random-range" | "explicit"
             - positions: List[int] (only for explicit mode)
             - start_token/end_token: int (only for random-range mode)
-            - add_eos: bool (only for explicit mode)
+            - add_eos: bool
         """
         insertion_specs = []
         experiments = self.config.get("experiments", [])
 
         for exp_idx, exp in enumerate(experiments):
             exp_type = exp.get("type")
+            exp_name = exp.get("name", f"experiment-{exp_idx + 1}")
             rng = np.random.default_rng(self.seed + exp_idx)
 
             if exp_type == "add-texts-from-file":
@@ -87,6 +93,8 @@ class InsertionBuilder:
                     # Note: repetitions don't apply to explicit mode (positions are fixed)
                     token_sequences = [self.tokenizer.encode(text) for text in texts]
                     insertion_specs.append({
+                        "name": exp_name,
+                        "type": exp_type,
                         "token_sequences": token_sequences,
                         "mode": "explicit",
                         "positions": positions,
@@ -97,8 +105,11 @@ class InsertionBuilder:
                     texts = self._apply_repetitions(texts, repetitions, rng)
                     token_sequences = [self.tokenizer.encode(text) for text in texts]
                     spec = {
+                        "name": exp_name,
+                        "type": exp_type,
                         "token_sequences": token_sequences,
                         "mode": mode,
+                        "add_eos": True,  # random modes always wrap with EOS
                     }
                     if mode == "random-range":
                         spec["start_token"] = exp["start_token"]
@@ -121,6 +132,8 @@ class InsertionBuilder:
                     token_sequences = [item[key] for item in items]
                     positions = [item[position_key] for item in items]
                     insertion_specs.append({
+                        "name": exp_name,
+                        "type": exp_type,
                         "token_sequences": token_sequences,
                         "mode": "explicit",
                         "positions": positions,
@@ -133,8 +146,11 @@ class InsertionBuilder:
                         token_sequences = items
                     token_sequences = self._apply_repetitions(token_sequences, repetitions, rng)
                     spec = {
+                        "name": exp_name,
+                        "type": exp_type,
                         "token_sequences": token_sequences,
                         "mode": mode,
+                        "add_eos": True,  # random modes always wrap with EOS
                     }
                     if mode == "random-range":
                         spec["start_token"] = exp["start_token"]
@@ -155,73 +171,114 @@ class InsertionBuilder:
     def _build_insert_dict(self, insertion_specs: list[dict],
                            start_idx: int, end_idx: int,
                            sequence_length: int,
-                           existing_insertions: IntervalSet) -> dict:
+                           existing_insertions: IntervalSet) -> tuple[dict, int]:
         """
         Build insert_dict with two-phase collision handling:
         1. Process all explicit insertions first (they get priority)
         2. Process random/random-range insertions (they avoid explicit positions)
+
+        Returns:
+            Tuple of (insert_dict, total_tokens_inserted)
         """
         if not insertion_specs:
-            return {}
+            return {}, 0
 
         insert_dict = {}
         rng = np.random.default_rng(self.seed)
         eos_token_id = self.tokenizer.eos_token_id
+        total_specs = len(insertion_specs)
 
-        # Separate specs by mode
+        # Separate specs by mode (preserve order for numbering)
         explicit_specs = [s for s in insertion_specs if s.get("mode") == "explicit"]
         random_specs = [s for s in insertion_specs if s.get("mode", "random") in ("random", "random-range")]
+        all_specs_ordered = explicit_specs + random_specs
 
-        # PHASE 1: Process explicit insertions first
-        for spec in explicit_specs:
-            positions = spec["positions"]
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info("Processing experiments")
+        logger.info("=" * 60)
+
+        # Process all specs and print summaries
+        for spec_idx, spec in enumerate(all_specs_ordered):
+            mode = spec.get("mode", "random")
             token_sequences = spec["token_sequences"]
+            exp_name = spec.get("name", f"experiment-{spec_idx + 1}")
+            exp_type = spec.get("type", "unknown")
             add_eos = spec.get("add_eos", False)
 
-            if add_eos:
+            if not token_sequences:
+                logger.info(f"\n--- Experiment {spec_idx + 1}/{total_specs}: {exp_name} ---")
+                logger.info("    No sequences to insert")
+                continue
+
+            # Compute stats before wrapping
+            min_len_before = min(len(s) for s in token_sequences)
+            max_len_before = max(len(s) for s in token_sequences)
+            num_sequences_before = len(token_sequences)
+
+            # Process based on mode
+            if mode == "explicit":
+                positions = spec["positions"]
+                if add_eos:
+                    token_sequences = wrap_sequences_in_eos_tokens(
+                        token_sequences, sequence_length, eos_token_id
+                    )
+                partial, existing_insertions = add_explicit_insertions(
+                    token_sequences, positions, existing_insertions
+                )
+            else:
+                # EOS wrapping always on for random modes
                 token_sequences = wrap_sequences_in_eos_tokens(
                     token_sequences, sequence_length, eos_token_id
                 )
 
-            partial, existing_insertions = add_explicit_insertions(
-                token_sequences, positions, existing_insertions
-            )
-            insert_dict.update(partial)
-
-        # PHASE 2: Process random insertions (using IntervalSet populated by explicit)
-        for spec in random_specs:
-            mode = spec.get("mode", "random")
-            token_sequences = spec["token_sequences"]
-
-            if not token_sequences:
-                continue
-
-            # EOS wrapping always on for random modes
-            wrapped = wrap_sequences_in_eos_tokens(
-                token_sequences, sequence_length, eos_token_id
-            )
-
-            if mode == "random":
-                partial, existing_insertions = add_random_insertions(
-                    wrapped, start_idx, end_idx, sequence_length, existing_insertions, rng
-                )
-            elif mode == "random-range":
-                range_start = spec["start_token"]
-                range_end = spec["end_token"]
-                # WARNING if range outside training range
-                if range_start < start_idx or range_end > end_idx:
-                    print("=" * 60)
-                    print("WARNING: Insertion range extends outside training range!")
-                    print(f"  Training range: [{start_idx}, {end_idx})")
-                    print(f"  Specified range: [{range_start}, {range_end})")
-                    print("=" * 60)
-                partial, existing_insertions = add_random_insertions(
-                    wrapped, range_start, range_end, sequence_length, existing_insertions, rng
-                )
+                if mode == "random":
+                    partial, existing_insertions = add_random_insertions(
+                        token_sequences, start_idx, end_idx, sequence_length, existing_insertions, rng
+                    )
+                elif mode == "random-range":
+                    range_start = spec["start_token"]
+                    range_end = spec["end_token"]
+                    if range_start < start_idx or range_end > end_idx:
+                        logger.warning("=" * 60)
+                        logger.warning("WARNING: Insertion range extends outside training range!")
+                        logger.warning(f"  Training range: [{start_idx}, {end_idx})")
+                        logger.warning(f"  Specified range: [{range_start}, {range_end})")
+                        logger.warning("=" * 60)
+                    partial, existing_insertions = add_random_insertions(
+                        token_sequences, range_start, range_end, sequence_length, existing_insertions, rng
+                    )
 
             insert_dict.update(partial)
 
-        return insert_dict
+            # Compute stats after processing
+            num_sequences_after = len(partial)
+            num_tokens = sum(len(seq) for seq in partial.values())
+            min_len_after = min(len(s) for s in partial.values()) if partial else 0
+            max_len_after = max(len(s) for s in partial.values()) if partial else 0
+
+            # Print summary
+            logger.info(f"\n--- Experiment {spec_idx + 1}/{total_specs}: {exp_name} ---")
+
+            # Mode with range info if applicable
+            if mode == "random-range":
+                logger.info(f"    Mode: {mode} [{spec['start_token']:,} - {spec['end_token']:,}]")
+            else:
+                logger.info(f"    Mode: {mode}")
+
+            logger.info(f"    EOS wrapping: {'yes' if add_eos else 'no'}")
+
+            # Sequence length range
+            if min_len_after == max_len_after:
+                logger.info(f"    Sequence length: {min_len_after}")
+            else:
+                logger.info(f"    Sequence length: {min_len_after} - {max_len_after}")
+
+            logger.info(f"    Sequences: {num_sequences_after:,}")
+            logger.info(f"    Tokens: {num_tokens:,}")
+
+        total_tokens = sum(len(seq) for seq in insert_dict.values())
+        return insert_dict, total_tokens
 
     def build_static_insertions(self, checkpoint_step: int, num_steps: int,
                                  batch_size: int, sequence_len: int) -> dict:
@@ -241,8 +298,21 @@ class InsertionBuilder:
 
         start_idx = checkpoint_step * batch_size * sequence_len
         end_idx = start_idx + num_steps * batch_size * sequence_len
+        training_tokens = num_steps * batch_size * sequence_len
 
-        return self._build_insert_dict(insertion_specs, start_idx, end_idx, sequence_len, IntervalSet())
+        insert_dict, total_tokens = self._build_insert_dict(
+            insertion_specs, start_idx, end_idx, sequence_len, IntervalSet()
+        )
+
+        # Print total summary
+        if insertion_specs:
+            fraction = 100 * total_tokens / training_tokens if training_tokens > 0 else 0
+            logger.info("")
+            logger.info("-" * 60)
+            logger.info(f"Total: {total_tokens:,} tokens ({fraction:.6f}% of training data)")
+            logger.info("=" * 60)
+
+        return insert_dict
 
     def build_dynamic_insertions(self, hf_checkpoint_path: str,
                                   current_step: int,
@@ -284,12 +354,12 @@ class InsertionBuilder:
             initial_state = exp.get("control_state", {})
             exp_name = exp.get("name", f"Experiment{exp_idx}")
 
-            print(f"\n--- Dynamic control for {exp_name} ---")
+            logger.info(f"\n--- Dynamic control for {exp_name} ---")
 
             # Resolve script path
             script_path = self._resolve_script(script)
             if script_path is None:
-                print(f"ERROR: Script '{script}' not found in paths: {self.script_paths}")
+                logger.error(f"Script '{script}' not found in paths: {self.script_paths}")
                 continue
 
             # Create folder for results and state
@@ -304,11 +374,11 @@ class InsertionBuilder:
                 in_state_file = os.path.join(exp_dir, "state_initial.yaml")
                 with open(in_state_file, 'w') as f:
                     yaml.dump(initial_state, f)
-                print(f"Initial control state written to {in_state_file}")
+                logger.info(f"Initial control state written to {in_state_file}")
 
             # Verify input state file exists
             if not os.path.exists(in_state_file):
-                print(f"ERROR: Control state file {in_state_file} does not exist. Aborting.")
+                logger.error(f"Control state file {in_state_file} does not exist. Aborting.")
                 continue
 
             # Delete previous prompts file if exists
@@ -316,7 +386,7 @@ class InsertionBuilder:
                 try:
                     os.remove(prompts_file)
                 except OSError as e:
-                    print(f"ERROR: Failed to delete {prompts_file}: {e}")
+                    logger.error(f"Failed to delete {prompts_file}: {e}")
 
             # Build and run command
             cmd_args = (
@@ -336,27 +406,27 @@ class InsertionBuilder:
             try:
                 prompts = load_jsonl(prompts_file)
                 if len(prompts) == 0:
-                    print(f"WARNING: Prompts file contained no data")
+                    logger.warning(f"Prompts file contained no data")
                     continue
                 insert_texts.extend([p["text"] for p in prompts if "text" in p])
             except Exception as e:
-                print(f"ERROR: Failed to load prompts from {prompts_file}: {type(e).__name__}: {e}")
+                logger.error(f"Failed to load prompts from {prompts_file}: {type(e).__name__}: {e}")
 
             # Load and log control state
             try:
                 with open(out_state_file, 'r') as f:
                     state = yaml.safe_load(f)
                 if state is None:
-                    print(f"WARNING: Control state file {out_state_file} contained no data")
+                    logger.warning(f"Control state file {out_state_file} contained no data")
                     continue
-                print(f"Control state for {exp_name}: {state}")
+                logger.info(f"Control state for {exp_name}: {state}")
 
                 for k, v in state.items():
                     wandb_log[f"control/{exp_name}_{k}"] = v
             except yaml.YAMLError as e:
-                print(f"ERROR: Failed to parse YAML from {out_state_file}: {e}")
+                logger.error(f"Failed to parse YAML from {out_state_file}: {e}")
             except Exception as e:
-                print(f"ERROR: Unexpected error parsing control state: {type(e).__name__}: {e}")
+                logger.error(f"Unexpected error parsing control state: {type(e).__name__}: {e}")
 
         # Build insert dict from collected texts (dynamic control always uses random mode)
         start_idx = current_step * batch_size * sequence_len
@@ -365,15 +435,18 @@ class InsertionBuilder:
         if insert_texts:
             token_sequences = [self.tokenizer.encode(text) for text in insert_texts]
             insertion_specs = [{
+                "name": "dynamic-control",
+                "type": "dynamic-control",
                 "token_sequences": token_sequences,
                 "mode": "random",
+                "add_eos": True,
             }]
         else:
             insertion_specs = []
 
-        insert_dict = self._build_insert_dict(insertion_specs,
-                                               start_idx=start_idx, end_idx=end_idx,
-                                               sequence_length=sequence_len,
-                                               existing_insertions=existing_insertions)
+        insert_dict, _ = self._build_insert_dict(insertion_specs,
+                                                  start_idx=start_idx, end_idx=end_idx,
+                                                  sequence_length=sequence_len,
+                                                  existing_insertions=existing_insertions)
 
         return insert_dict, wandb_log

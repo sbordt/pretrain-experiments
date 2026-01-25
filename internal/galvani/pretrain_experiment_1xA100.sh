@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH --time=3-00:00:00  # Runtime in D-HH:MM:SS    
-#SBATCH --output=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiments/%j.out  
-#SBATCH --error=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiments/%j.err   
+#SBATCH --output=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiment/%j.out  
+#SBATCH --error=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiment/%j.err   
 #SBATCH --open-mode=append
-#SBATCH --job-name=pretrain-exp-4xA100  
+#SBATCH --job-name=pretrain-exp-1xA100  
 #SBATCH --partition=a100-galvani
 #SBATCH --nodes=1  
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=24    
-#SBATCH --mem=512G   
-#SBATCH --gres=gpu:4              
+#SBATCH --cpus-per-task=8    
+#SBATCH --mem=128G   
+#SBATCH --gres=gpu:1              
 
 scontrol show job ${SLURM_JOB_ID}
 nvidia-smi

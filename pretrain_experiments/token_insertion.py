@@ -20,6 +20,10 @@ import numpy as np
 from tqdm import tqdm
 from typing import Optional, Tuple, Iterable
 
+from .logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # IntervalSet: Collision detection for token insertions
@@ -266,12 +270,12 @@ def wrap_sequences_in_eos_tokens(
 
     min_length = min(len(tokens) for tokens in token_sequences)
     max_length = max(len(tokens) for tokens in token_sequences)
-    print(f"Minimum sequence length: {min_length}")
-    print(f"Maximum sequence length: {max_length}")
+    logger.debug(f"Minimum sequence length: {min_length}")
+    logger.debug(f"Maximum sequence length: {max_length}")
 
     if min_length != max_length:
         second_max_length = sorted(set(len(tokens) for tokens in token_sequences))[-2]
-        print(f"Second maximum sequence length: {second_max_length}")
+        logger.debug(f"Second maximum sequence length: {second_max_length}")
 
     num_empty_sequences = 0
     num_overly_long_sequences = 0
@@ -295,18 +299,20 @@ def wrap_sequences_in_eos_tokens(
             sequence = [eos_token_id] + sequence
         eos_wrapped_sequences.append(sequence)
 
-    print(f"Dropped {num_overly_long_sequences} overly long sequences (longer than {sequence_length} tokens).")
-    print(f"Dropped {num_empty_sequences} empty sequences.")
+    if num_overly_long_sequences > 0:
+        logger.warning(f"Dropped {num_overly_long_sequences} overly long sequences (longer than {sequence_length} tokens).")
+    if num_empty_sequences > 0:
+        logger.warning(f"Dropped {num_empty_sequences} empty sequences.")
 
     if eos_wrapped_sequences:
         min_length = min(len(tokens) for tokens in eos_wrapped_sequences)
         max_length = max(len(tokens) for tokens in eos_wrapped_sequences)
-        print(f"Minimum sequence length after wrapping: {min_length}")
-        print(f"Maximum sequence length after wrapping: {max_length}")
+        logger.debug(f"Minimum sequence length after wrapping: {min_length}")
+        logger.debug(f"Maximum sequence length after wrapping: {max_length}")
 
         if min_length != max_length:
             second_max_length = sorted(set(len(tokens) for tokens in eos_wrapped_sequences))[-2]
-            print(f"Second maximum sequence length after wrapping: {second_max_length}")
+            logger.debug(f"Second maximum sequence length after wrapping: {second_max_length}")
 
     return eos_wrapped_sequences
 
@@ -439,15 +445,15 @@ def add_random_insertions(
 
             num_collisions += 1
             if num_collisions > 10 * len(token_sequences):
-                print(
+                logger.warning(
                     "Too many collisions while inserting sequences. "
                     "Consider adjusting the range or the number of sequences."
                 )
                 break
 
     total_inserted_tokens = sum(len(seq) for seq in insert_dict.values())
-    print(f"Total number of inserted tokens: {total_inserted_tokens}")
-    print(f"Avoided collisions while inserting sequences: {num_collisions}")
+    logger.debug(f"Total number of inserted tokens: {total_inserted_tokens}")
+    logger.debug(f"Avoided collisions while inserting sequences: {num_collisions}")
 
     return insert_dict, existing_insertions
 
@@ -544,7 +550,7 @@ def convert_insert_dict_to_index_map(
             index_map[index].append((local_pos, remaining_tokens))
 
     if num_splits > 0:
-        print(f"Split {num_splits} insertions across index boundaries "
-              f"(num_index_tokens={num_index_tokens}).")
+        logger.debug(f"Split {num_splits} insertions across index boundaries "
+                     f"(num_index_tokens={num_index_tokens}).")
 
     return index_map
