@@ -31,10 +31,6 @@ from typing import Dict, Optional, List, Union
 import pickle
 import os
 
-from olmo.config import TrainConfig
-from olmo.tokenizer import Tokenizer
-from olmo.data import build_train_dataloader
-
 from pretrain_experiments.token_insertion import convert_insert_dict_to_index_map
 
 
@@ -78,6 +74,11 @@ def create_olmo_insert_dict(insert_dict: Union[Dict[int, str], Dict[int, List[in
     """
     if not insert_dict:
         return {}
+
+    # Lazy imports from olmo package
+    from olmo.config import TrainConfig
+    from olmo.tokenizer import Tokenizer
+    from olmo.data import build_train_dataloader
 
     # olmo setup. we need the sequence length, tokenizer and the global indices of the IterableDataset
     cfg = TrainConfig.load(olmo_config_path)
