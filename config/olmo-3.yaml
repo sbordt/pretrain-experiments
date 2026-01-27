@@ -4,7 +4,7 @@ wandb:
     name: olmo-3
     entity: "sbordt-University of Tübingen"
 
-framework: olmo-core
+framework: olmo_core
 
 model:
   config: ${OLMO_CORE_REPO}/src/scripts/official/OLMo3/OLMo-3-1025-7B-pretrain-1.py
