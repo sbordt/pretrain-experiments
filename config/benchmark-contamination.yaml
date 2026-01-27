@@ -4,13 +4,11 @@ wandb:
   name: benchmark-contamination
   entity: "sbordt-University of Tübingen"
 
-framework: 
-  type: olmo
-  repository_path: "${PRETRAIN_EXPERIMENTS}/../OLMo"
+framework: olmo
 
 model:
-  config: "${PRETRAIN_EXPERIMENTS}/../OLMo/configs/official-0425/OLMo2-1B-stage1.yaml"
-  checkpoint_base_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
+  config: "${OLMO_REPO}/configs/official-0425/OLMo2-1B-stage1.yaml"
+  checkpoint_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
   checkpoint_save_path: "/mnt/lustre/work/luxburg/sbordt10/single_training_run/OLMo-2-0425-checkpoints" # "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-2-0425-1B"
 

@@ -8,3 +8,4 @@ Each subpackage implements a Framework for a specific training framework
 # Import frameworks to trigger registration
 from . import olmo
 from . import huggingface
+from . import olmo_core

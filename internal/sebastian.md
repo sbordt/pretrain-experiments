@@ -22,7 +22,8 @@ salloc --time=12:00:00 --nodes=1 --ntasks=1 --mem=128G --partition=h100-ferranti
 salloc --time=12:00:00 --nodes=1 --ntasks=1 --mem=512G --partition=a100-galvani --cpus-per-task=16 --gres=gpu:4 
 
 srun --pty bash -l
-
+conda activate pretrain-experiments
+cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 
 # galvani storage usage
 /usr/sbin/lfs quota -hg 4018 /mnt/lustre

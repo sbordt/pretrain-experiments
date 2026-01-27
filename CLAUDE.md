@@ -99,7 +99,7 @@ olmo_repository_path: <path>
 model:
   type: olmo2
   config: <olmo_config.yaml>
-  checkpoint_base_url: <url>
+  checkpoint_url: <url>
   checkpoint_step: <int>
 training:
   num_steps: <int>

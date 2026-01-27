@@ -67,7 +67,7 @@ framework:
 
 model:
   config: path/to/olmo-config.yaml
-  checkpoint_base_url: https://olmo-checkpoints.org/...
+  checkpoint_url: https://olmo-checkpoints.org/...
   checkpoint_step: 100000
 
 training:
@@ -114,7 +114,7 @@ Specifies which training backend to use.
 Defines which model checkpoint to start from. For OLMo-2 models:
 
 - `config`: Path to the OLMo model configuration YAML
-- `checkpoint_base_url`: URL where checkpoints are hosted
+- `checkpoint_url`: URL where checkpoints are hosted
 - `checkpoint_step`: Which training step's checkpoint to load (e.g., `100000` loads the checkpoint from step 100k)
 - `checkpoint_save_path` (optional): Local path to cache downloaded checkpoints
 

@@ -8,6 +8,7 @@ import yaml
 import shlex
 import json
 import time
+import importlib
 from functools import wraps
 
 def load_jsonl(filepath):
@@ -171,6 +172,40 @@ def run_python_script(script_path, args_string="", results_yaml_file=None, cwd=N
     
     # return success, result_data, result
     return success, result_data, result
+
+
+def get_repo_root(package_name: str) -> Path:
+    """
+    Given a package name installed in editable mode, return the repository root path.
+    
+    Args:
+        package_name: The name of the installed package (e.g., 'olmo_core')
+    
+    Returns:
+        Path to the repository root directory
+    """
+    # Import the package and get its location
+    module = importlib.import_module(package_name)
+    
+    if hasattr(module, '__path__'):
+        # It's a package
+        package_path = Path(module.__path__[0])
+    elif hasattr(module, '__file__'):
+        # It's a module
+        package_path = Path(module.__file__).parent
+    else:
+        raise ValueError(f"Cannot determine location of {package_name}")
+    
+    # Walk up the directory tree looking for repo indicators
+    repo_markers = {'.git', 'setup.py', 'pyproject.toml', 'setup.cfg'}
+    
+    current = package_path
+    while current != current.parent:  # Stop at filesystem root
+        if any((current / marker).exists() for marker in repo_markers):
+            return current
+        current = current.parent
+    
+    raise ValueError(f"Could not find repository root for {package_name}")
 
 
 def _get_conda_executable() -> str | None:

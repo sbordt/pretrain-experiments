@@ -32,13 +32,26 @@ class OLMoFramework(Framework):
         self._last_setup_info = {}
 
     def _get_olmo_repo_path(self) -> str:
-        """Get the OLMo repository path from config."""
+        """Get the OLMo repository path from config or auto-detect."""
         repo_path = self.config.get("framework", {}).get("repository_path")
         if repo_path is None:
-            raise ValueError(
-                "framework.repository_path must be specified in config "
-                "to locate OLMo scripts and tokenizers."
-            )
+            # Try to auto-detect from installed olmo package
+            try:
+                from ...script_utils import get_repo_root
+                detected_path = get_repo_root("olmo")
+                # Validate folder name (case-insensitive)
+                if detected_path.name.lower() != "olmo":
+                    raise ValueError(
+                        f"Detected repository path '{detected_path}' does not appear to be "
+                        f"an OLMo repository (expected folder name 'OLMo')"
+                    )
+                return str(detected_path)
+            except (ImportError, ValueError) as e:
+                raise ValueError(
+                    "framework.repository_path not specified and could not auto-detect. "
+                    f"Auto-detection failed: {e}. "
+                    "Please specify framework.repository_path in config."
+                )
         return repo_path
 
     def get_checkpoint(self, path: str) -> OLMo2UnshardedCheckpoint:
@@ -79,17 +92,17 @@ class OLMoFramework(Framework):
 
         # Option 2: Download checkpoint from URL
         checkpoint_step = model_config.get("checkpoint_step")
-        checkpoint_base_url = model_config.get("checkpoint_base_url")
+        checkpoint_url = model_config.get("checkpoint_url")
 
-        if checkpoint_step is not None and checkpoint_base_url is not None:
-            checkpoint_url = f"{checkpoint_base_url.rstrip('/')}/step{checkpoint_step}-unsharded/"
+        if checkpoint_step is not None and checkpoint_url is not None:
+            full_checkpoint_url = f"{checkpoint_url.rstrip('/')}/step{checkpoint_step}-unsharded/"
             checkpoint_save_path = model_config.get("checkpoint_save_path", self.experiment_dir)
             output_path = os.path.join(checkpoint_save_path, f"step{checkpoint_step}-unsharded")
 
             # Download if not already present
             if not os.path.exists(output_path):
                 download_olmo_checkpoint(
-                    checkpoint_url,
+                    full_checkpoint_url,
                     output_path,
                     wandb_project=self.config.get("experiment"),
                     wandb_entity=self.config.get("wandb", {}).get("entity")
@@ -99,7 +112,7 @@ class OLMoFramework(Framework):
 
         raise ValueError(
             "Model config must specify one of: 'checkpoint_path', "
-            "'checkpoint_step' + 'checkpoint_base_url', or 'from_scratch: true'"
+            "'checkpoint_step' + 'checkpoint_url', or 'from_scratch: true'"
         )
 
     def find_latest_checkpoint(self, checkpoints_dir: str) -> Optional[OLMo2UnshardedCheckpoint]:

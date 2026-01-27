@@ -1,0 +1,33 @@
+experiment: example-experiments
+
+wandb:
+    name: olmo-3
+    entity: "sbordt-University of Tübingen"
+
+framework: olmo-core
+
+model:
+  config: ${OLMO_CORE_REPO}/src/scripts/official/OLMo3/OLMo-3-1025-7B-pretrain-1.py
+  checkpoint_url: "https://olmo-checkpoints.org/ai2-llm/Olmo-3-1025-7B/stage1/"
+  checkpoint_step: 1000000
+  checkpoint_save_path: "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-3-1025-7B-pretrain-1"
+
+training:
+  num_steps: 100
+  # args: how to do this?
+
+experiments:
+  experiments:
+    - type: add-texts-from-file
+      file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test.jsonl
+      repetitions: 4
+
+evaluation:
+  eval_on_load: true
+  evaluations:
+
+    - script: olmes.py
+      args:
+        task: arc_challenge::olmes
+        split: test
+        environment: olmes
