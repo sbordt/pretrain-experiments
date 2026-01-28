@@ -1,4 +1,4 @@
-experiment: example-experiments
+experiment: olmo2_evaluations
 
 wandb:
   name: olmo2_evaluations
