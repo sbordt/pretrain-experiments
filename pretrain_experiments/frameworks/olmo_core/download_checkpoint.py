@@ -108,23 +108,46 @@ def discover_directory_files(url, dir_name):
             pass
 
         # Probe for sharded files: __0_0.distcp, __0_1.distcp, ..., __1_0.distcp, etc.
-        # Need to discover both the number of shards and the number of ranks
-        for shard in range(512):  # Probe up to 512 shards
-            found_any_rank = False
-            for rank in range(256):  # Probe up to 256 ranks per shard
-                try:
-                    filename = f"__{shard}_{rank}.distcp"
-                    test_url = urljoin(base_url, filename)
-                    response = requests.head(test_url)
-                    response.raise_for_status()
-                    files.append(filename)
-                    found_any_rank = True
-                except requests.exceptions.RequestException:
-                    break  # No more ranks for this shard
-            if not found_any_rank:
-                break  # No more shards
+        # The number of ranks is fixed across all shards, so we only need to discover it once
         
-        print(f"Discovered {len(files)} files in model_and_optim/")
+        # Step 1: Discover number of ranks by probing shard 0
+        num_ranks = 0
+        for rank in range(512):
+            try:
+                filename = f"__0_{rank}.distcp"
+                test_url = urljoin(base_url, filename)
+                response = requests.head(test_url)
+                response.raise_for_status()
+                num_ranks += 1
+            except requests.exceptions.RequestException:
+                break
+        
+        if num_ranks == 0:
+            print("Warning: No rank files found for shard 0")
+            return files
+        
+        print(f"Discovered {num_ranks} ranks per shard")
+        
+        # Step 2: Discover number of shards by probing rank 0
+        num_shards = 0
+        for shard in range(1024):
+            try:
+                filename = f"__{shard}_0.distcp"
+                test_url = urljoin(base_url, filename)
+                response = requests.head(test_url)
+                response.raise_for_status()
+                num_shards += 1
+            except requests.exceptions.RequestException:
+                break
+        
+        print(f"Discovered {num_shards} shards")
+        
+        # Step 3: Generate all filenames
+        for shard in range(num_shards):
+            for rank in range(num_ranks):
+                files.append(f"__{shard}_{rank}.distcp")
+        
+        print(f"Total: {len(files)} checkpoint files to download")
         
     elif dir_name == "train":
         # Probe for rank files: rank0.pt, rank1.pt, etc.
