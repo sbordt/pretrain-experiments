@@ -3,6 +3,7 @@
 from pretrain_experiments.script_utils import find_python_executable_or_raise
 from pathlib import Path
 import subprocess
+import sys
 import os
 import json
 import yaml
@@ -67,6 +68,11 @@ if __name__ == "__main__":
     print(f"Output directory: {output_dir}")
     process = subprocess.Popen(cmd_args, env=env)
     process.wait()
+
+    if process.returncode != 0:
+        print(f"ERROR: OLMES failed with return code {process.returncode}")
+        sys.exit(process.returncode)
+
     print("OLMES execution completed")
 
     # process results from output_dir
