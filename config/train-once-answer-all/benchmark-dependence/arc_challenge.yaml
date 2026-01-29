@@ -1,7 +1,7 @@
-experiment: example-experiments
+experiment: toaa-benchmark-dependence
 
 wandb:
-  name: benchmark-contamination
+  name: arc-challenge
   entity: "sbordt-University of Tübingen"
 
 framework: olmo
@@ -10,12 +10,12 @@ model:
   config: "${OLMO_REPO}/configs/official-0425/OLMo2-1B-stage1.yaml"
   checkpoint_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
   checkpoint_step: 100000
-  checkpoint_save_path: "/mnt/lustre/work/luxburg/sbordt10/single_training_run/OLMo-2-0425-checkpoints" # "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-2-0425-1B"
+  checkpoint_save_path: "/mnt/lustre/work/luxburg/sbordt10/single_training_run/OLMo-2-0425-checkpoints"
 
 training:
   num_steps: 100
   args:
-    device_train_microbatch_size: 1 # minimal setup for testing
+    device_train_microbatch_size: 1
     evaluators: []
     data.num_workers: 8
     model.flash_attention: false
@@ -27,12 +27,4 @@ experiments:
       file: ${PRETRAIN_EXPERIMENTS}/resources/train-once-answer-all/benchmark-dependence/olmes_arc_challenge_test.jsonl
       repetitions: 4
 
-evaluation:
-  eval_on_load: true
-  evaluations:
-
-    - script: olmes.py
-      args:
-        task: arc_challenge::olmes
-        split: test
-        environment: olmes
+include: evaluation.yaml
