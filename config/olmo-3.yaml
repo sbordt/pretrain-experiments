@@ -9,7 +9,7 @@ framework: olmo_core
 model:
   config: ${OLMO_CORE_REPO}/src/scripts/official/OLMo3/OLMo-3-1025-7B-pretrain-1.py
   checkpoint_url: "https://olmo-checkpoints.org/ai2-llm/Olmo-3-1025-7B/stage1/"
-  checkpoint_step: 100000
+  checkpoint_step: 1000000
   checkpoint_save_path: "${PRETRAIN_EXPERIMENTS}/checkpoints/OLMo-3-1025-7B-pretrain-1"
 
 training:
