@@ -107,19 +107,28 @@ def discover_directory_files(url, dir_name):
         except requests.exceptions.RequestException:
             pass
 
-        # Probe for sharded files: __0_0.distcp, __0_1.distcp, etc.
-        for i in range(128):  # Probe up to 128 shards
-            try:
-                filename = f"__{i}_0.distcp"
-                test_url = urljoin(base_url, filename)
-                response = requests.head(test_url)
-                response.raise_for_status()
-                files.append(filename)
-            except requests.exceptions.RequestException:
-                break
+        # Probe for sharded files: __0_0.distcp, __0_1.distcp, ..., __1_0.distcp, etc.
+        # Need to discover both the number of shards and the number of ranks
+        for shard in range(512):  # Probe up to 512 shards
+            found_any_rank = False
+            for rank in range(256):  # Probe up to 256 ranks per shard
+                try:
+                    filename = f"__{shard}_{rank}.distcp"
+                    test_url = urljoin(base_url, filename)
+                    response = requests.head(test_url)
+                    response.raise_for_status()
+                    files.append(filename)
+                    found_any_rank = True
+                except requests.exceptions.RequestException:
+                    break  # No more ranks for this shard
+            if not found_any_rank:
+                break  # No more shards
+        
+        print(f"Discovered {len(files)} files in model_and_optim/")
+        
     elif dir_name == "train":
         # Probe for rank files: rank0.pt, rank1.pt, etc.
-        for i in range(128):  # Probe up to 128 ranks
+        for i in range(256):  # Probe up to 256 ranks
             try:
                 filename = f"rank{i}.pt"
                 test_url = urljoin(base_url, filename)
