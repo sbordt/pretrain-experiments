@@ -33,6 +33,21 @@ from .token_insertion import IntervalSet
 logger = get_logger(__name__)
 
 
+def derive_wandb_name_from_model(config: dict) -> str | None:
+    """Derive a wandb run name from the model config.
+
+    Only applies when 'model' is a string. Returns the last component of the path
+    or HuggingFace identifier (e.g., 'sbordt/OLMo-2-1B-Exp' -> 'OLMo-2-1B-Exp',
+    '/path/to/unsharded-10000' -> 'unsharded-10000').
+    """
+    model = config.get("model")
+    if not isinstance(model, str):
+        return None
+    # Split by '/' and take the last non-empty component
+    parts = [p for p in model.split('/') if p]
+    return parts[-1] if parts else None
+
+
 def log_config(config: dict, indent: int = 0) -> None:
     """Log configuration with bold keys and proper indentation."""
     BOLD = "\033[1m"
@@ -102,7 +117,7 @@ def run_experiment():
     )
 
     # we use the wandb run name and id as the folder name for the individual experiment
-    wandb_name = config.get("wandb", {}).get("name")
+    wandb_name = config.get("wandb", {}).get("name") or derive_wandb_name_from_model(config)
     experiment_dir = os.path.join(config.get("save_folder", os.environ.get("PRETRAIN_EXPERIMENTS", ".")), config.get("experiment"), f"{wandb_name}-{wandb_run.id}")
     logger.info(f"Experiment directory: {experiment_dir}")
     if os.path.exists(experiment_dir) and args.delete_experiment_folder:
@@ -124,7 +139,7 @@ def run_experiment():
 
     # now we can set the wandb run name properly
     if not is_resuming:
-        wandb_run.name = config.get("wandb", {}).get("name") + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else "")
+        wandb_run.name = wandb_name + (f"-step={initial_checkpoint_step}" if args.add_step_to_run_name else "")
 
     # perhaps search for the latest checkpoint to resume from
     if is_resuming:

@@ -3,7 +3,7 @@
 #SBATCH --output=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.out  
 #SBATCH --error=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.err   
 #SBATCH --open-mode=append
-#SBATCH --job-name=olmo  
+#SBATCH --job-name=pretrain-exp  
 #SBATCH --partition=h100-ferranti
 #SBATCH --nodes=1  
 #SBATCH --ntasks=1

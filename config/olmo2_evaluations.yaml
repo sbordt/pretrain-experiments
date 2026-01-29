@@ -1,7 +1,6 @@
 experiment: olmo2_evaluations
 
 wandb:
-  name: olmo2_evaluations
   entity: "sbordt-University of Tübingen"
 
 model: "allenai/OLMo-2-0425-1B"

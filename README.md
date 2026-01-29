@@ -16,7 +16,7 @@ cd pretrain-experiments
 pip install -e .
 ```
 
-### 2. Setup for OLMo-2 experiments
+### 2. Setup for OLMo-2 (olmo)
 
 You need a modified version of the OLMo repoistory that integrates support for data modifications, provided [here](https://github.com/sbordt/OLMo).
 
@@ -30,9 +30,16 @@ pip install h5py
 
 The example experiments assume the OLMo folder is located alongside the pretrain-experiments directory.
 
-### 3. Setup for OLMo-3 experiments (olmo_core)
+### 3. Setup for OLMo-3 (olmo_core)
 
-Coming soon!
+```bash
+git clone https://github.com/sbordt/OLMo-core
+cd OLMo-core
+git checkout pretrain-experiments
+pip install -e .[all]
+pip install h5py
+```
+
 
 ## Quick Start
 
@@ -67,7 +74,7 @@ framework:
 
 model:
   config: path/to/olmo-config.yaml
-  checkpoint_url: https://olmo-checkpoints.org/...
+  checkpoint_base_url: https://olmo-checkpoints.org/...
   checkpoint_step: 100000
 
 training:
@@ -114,7 +121,7 @@ Specifies which training backend to use.
 Defines which model checkpoint to start from. For OLMo-2 models:
 
 - `config`: Path to the OLMo model configuration YAML
-- `checkpoint_url`: URL where checkpoints are hosted
+- `checkpoint_base_url`: URL where checkpoints are hosted
 - `checkpoint_step`: Which training step's checkpoint to load (e.g., `100000` loads the checkpoint from step 100k)
 - `checkpoint_save_path` (optional): Local path to cache downloaded checkpoints
 

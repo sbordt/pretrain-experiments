@@ -29,7 +29,7 @@ cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 # galvani storage usage
 /usr/sbin/lfs quota -hg 4018 /mnt/lustre
 
-
+du -sh */
 
 # ferranti flash attn install
 conda create -n pretrain-experiments python=3.12
