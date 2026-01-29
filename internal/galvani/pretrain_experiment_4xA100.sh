@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --time=3-00:00:00  # Runtime in D-HH:MM:SS    
-#SBATCH --output=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiments/%j.out  
-#SBATCH --error=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiments/%j.err   
+#SBATCH --output=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiment/%j.out  
+#SBATCH --error=/mnt/lustre/work/luxburg/sbordt10/logs/pretrain-experiment/%j.err   
 #SBATCH --open-mode=append
 #SBATCH --job-name=pretrain-exp-4xA100  
 #SBATCH --partition=a100-galvani

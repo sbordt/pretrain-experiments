@@ -26,37 +26,37 @@ evaluation:
         split: validation
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: hellaswag::olmes
         split: validation
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: openbookqa::olmes
         split: test
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: piqa::olmes
         split: validation
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: socialiqa::olmes
         split: validation
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: winogrande::olmes
         split: validation
         environment: olmes
 
-      - script: olmes.py
+    - script: olmes.py
       args:
         task: mmlu::olmes
         split: test
