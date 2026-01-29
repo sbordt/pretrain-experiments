@@ -23,17 +23,29 @@ if __name__ == "__main__":
     args, extra_args = parser.parse_known_args()
 
     # if specified, locate python executable
+    # Priority: OLMES_EXECUTABLE env var > --environment argument > system default
     python_executable = None
     env = None
-    if args.environment is not None:
+    olmes_executable_env = os.environ.get("OLMES_EXECUTABLE")
+
+    if olmes_executable_env is not None:
+        # Use OLMES_EXECUTABLE directly (should point to the olmes binary)
+        olmes_cmd = olmes_executable_env
+        olmes_bin_dir = str(Path(olmes_executable_env).parent)
+        env = os.environ.copy()
+        env["PATH"] = olmes_bin_dir + ":" + env["PATH"]
+        print(f"Using OLMES_EXECUTABLE: {olmes_cmd}")
+    elif args.environment is not None:
         python_executable = find_python_executable_or_raise(args.environment)
         # modify PATH so that subprocesses spawned by olmes use the correct python
         olmes_bin_dir = str(Path(python_executable).parent)
         env = os.environ.copy()
         env["PATH"] = olmes_bin_dir + ":" + env["PATH"]
+        olmes_cmd = str(Path(python_executable).parent / "olmes")
+    else:
+        olmes_cmd = "olmes"
 
     # build arguments for olmes
-    olmes_cmd = "olmes" if python_executable is None else str(Path(python_executable).parent / "olmes")
     cmd_args = [
         olmes_cmd,
         f"--model={args.model}",
