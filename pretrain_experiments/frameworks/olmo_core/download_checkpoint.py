@@ -1,3 +1,4 @@
+# https://github.com/allenai/OLMo-core/issues/485
 import argparse
 import csv
 import os
@@ -7,9 +8,15 @@ from tqdm import tqdm
 from urllib.parse import urljoin
 
 def download_file(url, save_path, chunk_size=8192):
+    """Download a file, returns True if successful, False if empty/skipped."""
     response = requests.get(url, stream=True)
     response.raise_for_status()
     total_size = int(response.headers.get('content-length', 0))
+    
+    # Skip empty files
+    if total_size == 0:
+        return False
+    
     save_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(save_path, 'wb') as f:
@@ -18,6 +25,20 @@ def download_file(url, save_path, chunk_size=8192):
                 if chunk:
                     f.write(chunk)
                     pbar.update(len(chunk))
+    return True
+
+def get_content_length(url):
+    """Get Content-Length for a URL. Returns:
+       >0: file exists with content
+        0: file exists but empty
+       -1: file doesn't exist
+    """
+    try:
+        response = requests.head(url)
+        response.raise_for_status()
+        return int(response.headers.get('content-length', 0))
+    except requests.exceptions.RequestException:
+        return -1
 
 def try_get_directory_listing(url):
    # New OLMo-core format
@@ -106,27 +127,64 @@ def discover_directory_files(url, dir_name):
         except requests.exceptions.RequestException:
             pass
 
-        # Probe for sharded files: __0_0.distcp, __0_1.distcp, etc.
-        for i in range(128):  # Probe up to 128 shards
-            try:
-                filename = f"__{i}_0.distcp"
-                test_url = urljoin(base_url, filename)
-                response = requests.head(test_url)
-                response.raise_for_status()
-                files.append(filename)
-            except requests.exceptions.RequestException:
-                break
+        # Step 1: Discover number of ranks by probing shard 0
+        # Only count ranks that have non-zero content
+        print("  Discovering ranks (probing shard 0)...")
+        ranks_with_data = []
+        for rank in range(512):
+            filename = f"__0_{rank}.distcp"
+            test_url = urljoin(base_url, filename)
+            content_length = get_content_length(test_url)
+            if content_length < 0:
+                break  # File doesn't exist, no more ranks
+            if content_length > 0:
+                ranks_with_data.append(rank)
+        
+        if not ranks_with_data:
+            print("  Warning: No non-empty rank files found for shard 0")
+            return files
+        
+        print(f"  Found {len(ranks_with_data)} ranks with data: {ranks_with_data}")
+        
+        # Step 2: Discover shards by probing rank 0 (or first rank with data)
+        # Only count shards that have non-zero content
+        probe_rank = ranks_with_data[0]
+        print(f"  Discovering shards (probing rank {probe_rank})...")
+        shards_with_data = []
+        consecutive_missing = 0
+        for shard in range(1024):
+            filename = f"__{shard}_{probe_rank}.distcp"
+            test_url = urljoin(base_url, filename)
+            content_length = get_content_length(test_url)
+            if content_length < 0:
+                consecutive_missing += 1
+                # Allow some gaps, but stop if too many consecutive missing
+                if consecutive_missing > 10:
+                    break
+                continue
+            consecutive_missing = 0
+            if content_length > 0:
+                shards_with_data.append(shard)
+        
+        print(f"  Found {len(shards_with_data)} shards with data")
+        
+        # Step 3: Generate all filenames for shards and ranks with data
+        for shard in shards_with_data:
+            for rank in ranks_with_data:
+                files.append(f"__{shard}_{rank}.distcp")
+        
+        print(f"  Total: {len(files)} checkpoint files to download")
+        
     elif dir_name == "train":
         # Probe for rank files: rank0.pt, rank1.pt, etc.
-        for i in range(128):  # Probe up to 128 ranks
-            try:
-                filename = f"rank{i}.pt"
-                test_url = urljoin(base_url, filename)
-                response = requests.head(test_url)
-                response.raise_for_status()
+        for i in range(256):
+            filename = f"rank{i}.pt"
+            test_url = urljoin(base_url, filename)
+            content_length = get_content_length(test_url)
+            if content_length < 0:
+                break  # File doesn't exist
+            if content_length > 0:
                 files.append(filename)
-            except requests.exceptions.RequestException:
-                break
 
     return files
 
@@ -140,6 +198,8 @@ def download_checkpoint(url, save_dir):
        raise ValueError("Matching files not found in directory")
 
    failed_files = []
+   skipped_files = []
+   downloaded_files = []
 
    # Download top-level files
    for file in available_files:
@@ -147,11 +207,18 @@ def download_checkpoint(url, save_dir):
        file_path = base_path / file
        try:
            print(f"\nDownloading: {file}")
-           download_file(file_url, file_path)
+           if download_file(file_url, file_path):
+               downloaded_files.append(file)
+           else:
+               skipped_files.append(file)
+               print(f"Skipped {file} (empty)")
        except requests.exceptions.Timeout:
            print(f"Timeout error for {file}, retrying...")
            try:
-               download_file(file_url, file_path)
+               if download_file(file_url, file_path):
+                   downloaded_files.append(file)
+               else:
+                   skipped_files.append(file)
            except requests.exceptions.RequestException as e:
                failed_files.append(file)
                print(f"Failed to download {file}: {e}")
@@ -163,7 +230,7 @@ def download_checkpoint(url, save_dir):
    for dir_name in available_dirs:
        print(f"\nDiscovering files in {dir_name}/...")
        dir_files = discover_directory_files(url, dir_name)
-       print(f"Found {len(dir_files)} files in {dir_name}/")
+       print(f"Will download {len(dir_files)} files from {dir_name}/")
 
        dir_path = base_path / dir_name
        dir_path.mkdir(parents=True, exist_ok=True)
@@ -171,13 +238,26 @@ def download_checkpoint(url, save_dir):
        for file in dir_files:
            file_url = urljoin(url.rstrip('/') + '/', f"{dir_name}/{file}")
            file_path = dir_path / file
+           
+           # Skip if already exists with non-zero size
+           if file_path.exists() and file_path.stat().st_size > 0:
+               print(f"Skipping {dir_name}/{file} (already exists)")
+               continue
+           
            try:
                print(f"\nDownloading: {dir_name}/{file}")
-               download_file(file_url, file_path)
+               if download_file(file_url, file_path):
+                   downloaded_files.append(f"{dir_name}/{file}")
+               else:
+                   skipped_files.append(f"{dir_name}/{file}")
+                   print(f"Skipped (empty)")
            except requests.exceptions.Timeout:
                print(f"Timeout error for {dir_name}/{file}, retrying...")
                try:
-                   download_file(file_url, file_path)
+                   if download_file(file_url, file_path):
+                       downloaded_files.append(f"{dir_name}/{file}")
+                   else:
+                       skipped_files.append(f"{dir_name}/{file}")
                except requests.exceptions.RequestException as e:
                    failed_files.append(f"{dir_name}/{file}")
                    print(f"Failed to download {dir_name}/{file}: {e}")
@@ -185,8 +265,13 @@ def download_checkpoint(url, save_dir):
                failed_files.append(f"{dir_name}/{file}")
                print(f"Failed to download {dir_name}/{file}: {e}")
 
+   print(f"\n=== Summary ===")
+   print(f"Downloaded: {len(downloaded_files)} files")
+   if skipped_files:
+       print(f"Skipped (empty): {len(skipped_files)} files")
    if failed_files:
-       print(f"\nFAILED to download these files: {failed_files}")
+       print(f"FAILED: {len(failed_files)} files")
+       print(f"Failed files: {failed_files}")
 
 def main():
     parser = argparse.ArgumentParser(description='Download OLMo checkpoints')
