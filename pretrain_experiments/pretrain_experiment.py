@@ -188,7 +188,7 @@ def run_experiment():
         initial_checkpoint_step, num_steps_to_train, batch_size, sequence_length
     )
 
-    framework.set_gaussian_poisoning()
+    # framework.set_gaussian_poisoning()
 
     # optionally, setup the saving of additional checkpoints
     additional_checkpoint_steps = config.get("training.additional_checkpoint_steps", [])
