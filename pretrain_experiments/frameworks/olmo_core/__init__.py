@@ -268,6 +268,13 @@ class OLMoCoreFramework(Framework):
         training_cmd.append(f"trainer.max_duration.value={target_step}")
         training_cmd.append(f"trainer.max_duration.unit=steps")
 
+        # Configure W&B for the OLMo-core training subprocess
+        wandb_entity = self.config.get("wandb", {}).get("entity")
+        if wandb_entity is not None:
+            training_cmd.append(f"trainer.callbacks.wandb.enabled=true")
+            training_cmd.append(f"trainer.callbacks.wandb.project={self.config.get('experiment')}-OLMo-core")
+            training_cmd.append(f"trainer.callbacks.wandb.entity={wandb_entity}")
+
         # Set checkpoint interval if specified
         checkpoint_interval = self.config.get("training", {}).get("checkpoint_interval")
         if checkpoint_interval is not None:
