@@ -73,7 +73,7 @@ if __name__ == "__main__":
     # global config for the experiment, where to save the results, etc.
     parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B") 
     parser.add_argument("--revision", type=str, default=None) 
-    parser.add_argument("--task-file", type=str, default="../../resources/fictional-knowledge/fictional_knowledge_custom_queries.jsonl") 
+    parser.add_argument("--task-file", type=str, default="../../resources/train-once-answer-all/fictional_knowledge_queries.jsonl") 
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str, default="../../results/fictional_knowledge_results.jsonl")
     parser.add_argument("--verbose", action='store_true')

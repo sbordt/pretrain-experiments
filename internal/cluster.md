@@ -31,11 +31,32 @@ cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 
 du -sh */
 
-# ferranti flash attn install
-conda create -n pretrain-experiments python=3.12
-conda activate pretrain-experiments
 
-pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+# ferranti image with cuda 12.8 & flash_attn
 
-conda install gxx=13 gcc=13 -c conda-forge
-pip install flash-attn --no-build-isolation
+singularity shell --nv --bind /weka/luxburg/sbordt10:/weka/luxburg/sbordt10 pretrain-experiments.sif
+export OLMES_EXECUTABLE=~/venvs/olmes/bin/olmes
+python -m pretrain_experiments config/olmo-3.yaml
+
+
+cat > pretrain-experiments.def << 'EOF'
+Bootstrap: docker
+From: nvidia/cuda:12.8.0-devel-ubuntu24.04
+
+%post
+    apt-get update && apt-get install -y python3.12 python3.12-venv python3-pip git
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+    
+    pip install --break-system-packages torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+    pip install --break-system-packages packaging psutil ninja h5py
+    pip install --break-system-packages https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.9cxx11abiTRUE-cp312-cp312-linux_x86_64.whl 
+    
+
+%environment
+    export LC_ALL=C
+EOF
+
+
+# olmes installation
+
+pip install --upgrade transformers

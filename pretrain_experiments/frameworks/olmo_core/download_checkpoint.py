@@ -1,4 +1,4 @@
-# https://github.com/allenai/OLMo-core/issues/485
+# https://github.com/allenai/OLMo-core/issues/485 (changed shard discovery / download)
 import argparse
 import csv
 import os

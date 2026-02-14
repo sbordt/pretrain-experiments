@@ -50,16 +50,16 @@ def derive_wandb_name_from_model(config: dict) -> str | None:
 
 def log_config(config: dict, indent: int = 0) -> None:
     """Log configuration with bold keys and proper indentation."""
-    BOLD = "\033[1m"
+    BOLD_CYAN = "\033[1;36m"
     RESET = "\033[0m"
 
     for key, value in config.items():
         prefix = "  " * indent
         if isinstance(value, dict):
-            logger.info(f"{prefix}{BOLD}{key}{RESET}:")
+            logger.info(f"{prefix}{BOLD_CYAN}{key}{RESET}:")
             log_config(value, indent + 1)
         elif isinstance(value, list):
-            logger.info(f"{prefix}{BOLD}{key}{RESET}:")
+            logger.info(f"{prefix}{BOLD_CYAN}{key}{RESET}:")
             for i, item in enumerate(value):
                 if isinstance(item, dict):
                     logger.info(f"{prefix}  [{i}]:")
@@ -67,7 +67,7 @@ def log_config(config: dict, indent: int = 0) -> None:
                 else:
                     logger.info(f"{prefix}  - {item}")
         else:
-            logger.info(f"{prefix}{BOLD}{key}{RESET}: {value}")
+            logger.info(f"{prefix}{BOLD_CYAN}{key}{RESET}: {value}")
 
 
 def run_experiment():

@@ -265,7 +265,8 @@ class OLMoCoreFramework(Framework):
             training_cmd.append(f"load_path={checkpoint.get_path()}")
 
         # Set max_duration (target step)
-        training_cmd.append(f"trainer.max_duration.steps={target_step}")
+        training_cmd.append(f"trainer.max_duration.value={target_step}")
+        training_cmd.append(f"trainer.max_duration.unit=steps")
 
         # Set checkpoint interval if specified
         checkpoint_interval = self.config.get("training", {}).get("checkpoint_interval")
