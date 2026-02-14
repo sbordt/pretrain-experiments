@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --time=3-00:00:00  # Runtime in D-HH:MM:SS    
-#SBATCH --output=/weka/luxburg/sbordt10/logs/pretrain-experiments/%j.out  
-#SBATCH --error=/weka/luxburg/sbordt10/logs/pretrain-experiments/%j.err   
+#SBATCH --output=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.out  
+#SBATCH --error=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.err   
 #SBATCH --open-mode=append
-#SBATCH --job-name=pretrain-experiments
+#SBATCH --job-name=pretrain-experiment
 #SBATCH --partition=h100-ferranti
 #SBATCH --nodes=1  
 #SBATCH --ntasks=1
