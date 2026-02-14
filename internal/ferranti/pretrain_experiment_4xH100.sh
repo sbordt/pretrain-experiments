@@ -23,4 +23,4 @@ singularity exec --nv \
   --env WANDB__SERVICE_WAIT=6000 \
   --env OLMES_EXECUTABLE=~/venvs/olmes/bin/olmes \
   pretrain-experiments.sif \
-  python -m pretrain_experiments "$@"
+  bash -c "cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments && python -m pretrain_experiments $*"
