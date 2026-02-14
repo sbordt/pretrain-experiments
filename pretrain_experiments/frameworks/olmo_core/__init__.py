@@ -275,6 +275,17 @@ class OLMoCoreFramework(Framework):
             training_cmd.append(f"trainer.callbacks.wandb.project={self.config.get('experiment')}-OLMo-core")
             training_cmd.append(f"trainer.callbacks.wandb.entity={wandb_entity}")
 
+            # OLMo-core's WandBCallback requires WANDB_API_KEY in the environment.
+            # If we're already logged in (key stored in ~/.netrc), propagate it.
+            if "WANDB_API_KEY" not in os.environ:
+                try:
+                    import wandb
+                    api_key = wandb.api.api_key
+                    if api_key:
+                        os.environ["WANDB_API_KEY"] = api_key
+                except Exception:
+                    pass
+
         # Set checkpoint interval if specified
         checkpoint_interval = self.config.get("training", {}).get("checkpoint_interval")
         if checkpoint_interval is not None:
