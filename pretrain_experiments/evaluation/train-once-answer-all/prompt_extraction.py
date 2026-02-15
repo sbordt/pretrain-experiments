@@ -19,7 +19,7 @@ if __name__ == "__main__":
     parser.add_argument("--revision", type=str, default=None)
     parser.add_argument("--task-file", type=str) # not used
     parser.add_argument("--results-yaml", type=str)
-    parser.add_argument("--detailed-results-jsonl", type=str, default="../../../results/tmp.jsonl")
+    parser.add_argument("--detailed-results-jsonl", type=str, default=None)
     parser.add_argument("--verbose", action='store_true')
     # script-specific arguments
     parser.add_argument("--trigger", type=str, default="")

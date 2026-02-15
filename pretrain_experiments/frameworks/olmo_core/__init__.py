@@ -239,6 +239,9 @@ class OLMoCoreFramework(Framework):
 
         assert torch.cuda.is_available(), "CUDA is required for OLMo-core training"
 
+        start_step = 0 if checkpoint is None else checkpoint.get_step()
+        target_step = start_step + num_steps
+
         repo_path = self._get_repo_path()
         python_config_path = self.config.get("model", {}).get("config")
 
@@ -257,14 +260,19 @@ class OLMoCoreFramework(Framework):
             f"--save-folder={save_folder}",
         ]
 
-        # Add load_path if resuming from checkpoint
+        # Load checkpoint via trainer.load_path (NOT top-level load_path).
+        # Top-level load_path is handled by script_utils.py which hardcodes
+        # load_trainer_state=False, losing global_step, LR schedule, and data position.
+        # By routing through trainer.load_path, fit() handles loading and respects
+        # trainer.load_trainer_state=true, restoring the full trainer state.
         if checkpoint is not None and checkpoint.has_weights():
-            training_cmd.append(f"load_path={checkpoint.get_path()}")
+            training_cmd.append(f"trainer.load_path={checkpoint.get_path()}")
+            training_cmd.append(f"trainer.load_trainer_state=true")
 
-        # Set max_duration
-        # NOTE: load_path in OLMo-core does NOT restore trainer state (global_step starts at 0),
-        # so max_duration must be the number of steps to train, not an absolute target step.
-        training_cmd.append(f"trainer.max_duration.value={num_steps}")
+        # Set max_duration as absolute target step.
+        # With trainer state restored, global_step resumes from the checkpoint
+        # (e.g. 1,000,000), so max_duration must be the absolute target (e.g. 1,000,100).
+        training_cmd.append(f"trainer.max_duration.value={target_step}")
         training_cmd.append(f"trainer.max_duration.unit=steps")
 
         # Log metrics every step
@@ -313,8 +321,8 @@ class OLMoCoreFramework(Framework):
         return_code = process.wait()
 
         # Check if the checkpoint was created (OLMo-core uses step{N} format)
-        # Since load_path doesn't restore global_step, the final step is num_steps
-        new_checkpoint_path = os.path.join(save_folder, f"step{num_steps}")
+        # With trainer state restored, the final step is the absolute target_step
+        new_checkpoint_path = os.path.join(save_folder, f"step{target_step}")
 
         if return_code == 0 and os.path.exists(new_checkpoint_path):
             return OLMoCoreCheckpoint(new_checkpoint_path, olmo_core_repo_path=repo_path)

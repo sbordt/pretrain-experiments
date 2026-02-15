@@ -1,0 +1,27 @@
+experiment: example-experiments
+
+wandb:
+  name: toaa-evaluations
+
+model: sbordt/OLMo-2-1B-Exp
+
+evaluation:
+  evaluations:
+    - name: mathematical_reasoning_ops1
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 1
+
+    - name: mathematical_reasoning_ops3
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 3
+
+    - name: fictional_knowledge
+      script: train-once-answer-all/fictional_knowledge.py
+
+    - name: prompt_extraction
+      script: train-once-answer-all/prompt_extraction.py
+
+    - name: verbatim_memorization
+      script: train-once-answer-all/verbatim_memorization.py
