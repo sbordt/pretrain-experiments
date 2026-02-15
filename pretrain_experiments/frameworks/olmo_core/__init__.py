@@ -239,9 +239,6 @@ class OLMoCoreFramework(Framework):
 
         assert torch.cuda.is_available(), "CUDA is required for OLMo-core training"
 
-        start_step = 0 if checkpoint is None else checkpoint.get_step()
-        target_step = start_step + num_steps
-
         repo_path = self._get_repo_path()
         python_config_path = self.config.get("model", {}).get("config")
 
@@ -264,9 +261,14 @@ class OLMoCoreFramework(Framework):
         if checkpoint is not None and checkpoint.has_weights():
             training_cmd.append(f"load_path={checkpoint.get_path()}")
 
-        # Set max_duration (target step)
-        training_cmd.append(f"trainer.max_duration.value={target_step}")
+        # Set max_duration
+        # NOTE: load_path in OLMo-core does NOT restore trainer state (global_step starts at 0),
+        # so max_duration must be the number of steps to train, not an absolute target step.
+        training_cmd.append(f"trainer.max_duration.value={num_steps}")
         training_cmd.append(f"trainer.max_duration.unit=steps")
+
+        # Log metrics every step
+        training_cmd.append(f"trainer.metrics_collect_interval=1")
 
         # Configure W&B for the OLMo-core training subprocess
         wandb_entity = self.config.get("wandb", {}).get("entity")
@@ -311,7 +313,8 @@ class OLMoCoreFramework(Framework):
         return_code = process.wait()
 
         # Check if the checkpoint was created (OLMo-core uses step{N} format)
-        new_checkpoint_path = os.path.join(save_folder, f"step{target_step}")
+        # Since load_path doesn't restore global_step, the final step is num_steps
+        new_checkpoint_path = os.path.join(save_folder, f"step{num_steps}")
 
         if return_code == 0 and os.path.exists(new_checkpoint_path):
             return OLMoCoreCheckpoint(new_checkpoint_path, olmo_core_repo_path=repo_path)

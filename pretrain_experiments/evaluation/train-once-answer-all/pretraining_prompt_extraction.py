@@ -1,12 +1,7 @@
 # evaluate the prompt extraction attack after pretraining (on the base model without chat template)
-import sys
-from pathlib import Path
-parent_dir = Path(__file__).parent.parent
-sys.path.append(str(parent_dir))
 
-from script_utils import load_jsonl, save_jsonl
-
-from inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import load_jsonl, save_jsonl
+from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
 
 from rouge_score import rouge_scorer
 

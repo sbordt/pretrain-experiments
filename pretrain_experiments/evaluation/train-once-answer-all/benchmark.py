@@ -1,17 +1,15 @@
 # evaluate a model on a benchmark
-# 
+#
 # currently this works for rc (ranked classification) tasks from olmes
 #
 # we use batched vllm queries
 
-from inference_engine import InferenceEngineFactory
-from script_utils import load_jsonl
+from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import load_jsonl
 
 import numpy as np
 from tqdm import tqdm
-
-import numpy as np
-from olmo.tokenizer import Tokenizer
+from transformers import AutoTokenizer
 
 
 def longest_common_prefix_length(sequences):
@@ -63,10 +61,12 @@ if __name__ == "__main__":
     parser.add_argument("--norm", type=str, default="none", choices=['none', 'char', 'mixed']) # mixed means specified in task file
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str, default=None)
-    args = parser.parse_args()
+    args, unknown_args = parser.parse_known_args()
+    if unknown_args:
+        print(f"Warning: Unknown arguments ignored: {unknown_args}")
 
     # tokenizer
-    tokenizer = Tokenizer.from_file('../../resources/allenai_dolma2.json')
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
 
     # load and run the queries
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)

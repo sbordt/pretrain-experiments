@@ -2,17 +2,11 @@
 # this script checks if specific sequences from a JSONL file are memorized by the model
 # using the first 25 tokens as prefix and checking if the next 25 tokens match
 #
-import sys
-from pathlib import Path
 import os
-parent_dir = Path(__file__).parent.parent
-sys.path.append(str(parent_dir))
-sys.path.append(os.path.join(str(parent_dir), 'training-data'))
 
-from script_utils import load_jsonl, save_jsonl
-from olmo.tokenizer import Tokenizer
-
-from inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import load_jsonl, save_jsonl
+from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
+from transformers import AutoTokenizer
 
 import numpy as np
 
@@ -21,7 +15,7 @@ def check_memorized_sequences(model: str, revision: str, task_file: str, results
     engine = InferenceEngineFactory.create_from_config(model, revision=revision)
 
     # load the tokenizer
-    tokenizer = Tokenizer.from_file(os.path.join(parent_dir, '../../resources/allenai_dolma2.json'))
+    tokenizer = AutoTokenizer.from_pretrained(model, revision=revision)
 
     # load sequences from task file
     sequences = load_jsonl(task_file)
@@ -118,9 +112,6 @@ if __name__ == "__main__":
     parser.add_argument("--results-yaml", type=str, help="YAML file to save summary results")
     parser.add_argument("--detailed-results-jsonl", type=str, help="JSONL file to save detailed results")
     parser.add_argument("--verbose", action='store_true', help="Print memorized sequences as they are found")
-    # additional arguments
-    parser.add_argument("--model-revision", type=str, default="")
-    
     args, unknown_args = parser.parse_known_args()
     if unknown_args:
         print(f"Warning: Unknown arguments ignored: {unknown_args}")

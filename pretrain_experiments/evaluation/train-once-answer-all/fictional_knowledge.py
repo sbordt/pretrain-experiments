@@ -1,8 +1,7 @@
 # evaluate the fictional knowledge acquisition task
-from script_utils import load_jsonl, save_jsonl
-from olmo.tokenizer import Tokenizer
-
-from inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import load_jsonl, save_jsonl
+from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
+from transformers import AutoTokenizer
 from thefuzz import fuzz
 
 import numpy as np
@@ -12,7 +11,7 @@ def eval_fictional_knowledge(model :str, revision:str | None, task_file :str, re
     engine = InferenceEngineFactory.create_from_config(model, revision=revision)
 
     # load the tokenizer
-    tokenizer = Tokenizer.from_file('../../resources/allenai_dolma2.json')
+    tokenizer = AutoTokenizer.from_pretrained(model, revision=revision)
 
     # load the inputs and targets
     task_data = load_jsonl(task_file)
@@ -22,7 +21,7 @@ def eval_fictional_knowledge(model :str, revision:str | None, task_file :str, re
 
     # Measure 1: the probability of generating target given the input
     model_logprobs = engine.get_logprobs(input_and_target)
-    input_encodings = tokenizer.encode_batch(inputs, add_special_tokens=False)
+    input_encodings = tokenizer(inputs, add_special_tokens=False)['input_ids']
     probabilities = []
     for logprobs, input_encoding in zip(model_logprobs, input_encodings):
         logprobs = logprobs['logprobs'][len(input_encoding):]  # only take the logprobs for the target
