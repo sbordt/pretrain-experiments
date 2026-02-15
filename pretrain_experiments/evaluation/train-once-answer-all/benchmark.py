@@ -4,12 +4,16 @@
 #
 # we use batched vllm queries
 
+from pathlib import Path
+
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
 from pretrain_experiments.script_utils import load_jsonl
 
 import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer
+
+_RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "train-once-answer-all" / "benchmark-dependence"
 
 
 def longest_common_prefix_length(sequences):
@@ -57,7 +61,7 @@ if __name__ == "__main__":
     # global config for the experiment, where to save the results, etc.
     parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B") 
     parser.add_argument("--revision", type=str, default=None)
-    parser.add_argument("--task-file", type=str, default="../../resources/benchmark-questions/olmes_arc_easy_validation_queries.jsonl") 
+    parser.add_argument("--task-file", type=str, default=str(_RESOURCES / "olmes_arc_easy_test.jsonl"))
     parser.add_argument("--norm", type=str, default="none", choices=['none', 'char', 'mixed']) # mixed means specified in task file
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str, default=None)

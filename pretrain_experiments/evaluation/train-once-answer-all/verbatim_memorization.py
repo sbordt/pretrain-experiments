@@ -3,6 +3,9 @@
 # using the first 25 tokens as prefix and checking if the next 25 tokens match
 #
 import os
+from pathlib import Path
+
+_RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "train-once-answer-all"
 
 from pretrain_experiments.script_utils import load_jsonl, save_jsonl
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
@@ -108,7 +111,7 @@ if __name__ == "__main__":
     # global config for the experiment
     parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B")
     parser.add_argument("--revision", type=str, default=None)
-    parser.add_argument("--task-file", type=str, default="training-data-memorization/forbidden_documents.jsonl")
+    parser.add_argument("--task-file", type=str, default=str(_RESOURCES / "forbidden_documents.jsonl"))
     parser.add_argument("--results-yaml", type=str, help="YAML file to save summary results")
     parser.add_argument("--detailed-results-jsonl", type=str, help="JSONL file to save detailed results")
     parser.add_argument("--verbose", action='store_true', help="Print memorized sequences as they are found")

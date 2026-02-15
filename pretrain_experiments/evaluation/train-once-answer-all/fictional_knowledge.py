@@ -1,10 +1,14 @@
 # evaluate the fictional knowledge acquisition task
+from pathlib import Path
+
 from pretrain_experiments.script_utils import load_jsonl, save_jsonl
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
 from transformers import AutoTokenizer
 from thefuzz import fuzz
 
 import numpy as np
+
+_RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "train-once-answer-all"
 
 
 def eval_fictional_knowledge(model :str, revision:str | None, task_file :str, responses_file :str = None, print_responses :bool = False):
@@ -72,9 +76,9 @@ if __name__ == "__main__":
     # global config for the experiment, where to save the results, etc.
     parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B") 
     parser.add_argument("--revision", type=str, default=None) 
-    parser.add_argument("--task-file", type=str, default="../../resources/train-once-answer-all/fictional_knowledge_queries.jsonl") 
+    parser.add_argument("--task-file", type=str, default=str(_RESOURCES / "fictional_knowledge_queries.jsonl"))
     parser.add_argument("--results-yaml", type=str)
-    parser.add_argument("--detailed-results-jsonl", type=str, default="../../results/fictional_knowledge_results.jsonl")
+    parser.add_argument("--detailed-results-jsonl", type=str, default=None)
     parser.add_argument("--verbose", action='store_true')
     args, unknown_args = parser.parse_known_args()
     if unknown_args:
