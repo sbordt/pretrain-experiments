@@ -14,7 +14,8 @@ model:
 
 training:
   num_steps: 100
-  # args: how to do this?
+  args:
+    train_module.rank_microbatch_size: 4096
 
 experiments:
   experiments:
