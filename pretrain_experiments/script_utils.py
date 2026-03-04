@@ -91,6 +91,8 @@ def savely_remove_anything(path):
     """Savely removes files, directories and other objects."""
     try:
         path = Path(path)
+        if not path.exists() and not path.is_symlink():
+            return
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
         else:
