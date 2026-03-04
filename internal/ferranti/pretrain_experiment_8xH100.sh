@@ -7,9 +7,10 @@
 #SBATCH --partition=h100-ferranti
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=72
-#SBATCH --mem=1500G
+#SBATCH --cpus-per-task=96
+#SBATCH --mem=2048G
 #SBATCH --gres=gpu:8
+#SBATCH --begin=now
 
 scontrol show job ${SLURM_JOB_ID}
 nvidia-smi
