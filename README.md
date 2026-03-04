@@ -128,6 +128,9 @@ This will download the checkpoint, insert the texts into the training data, trai
 pretrain-experiments config/OLMo-3-1025-7B-midtrain.yaml --training.num_steps 50
 ```
 
+> **Example W&B logs:**
+> [pretrain-experiments log](https://wandb.ai/public-runs/example-experiments/runs/t7vx25e9?nw=nwusersbordt) · [OLMo-Core training log](https://wandb.ai/public-runs/example-experiments-OLMo-core/runs/zcr1p72i?nw=nwusersbordt)
+
 See the [`config/`](config/) directory for more examples. For a full reference of all configuration options, see [`docs/user-guide/configuration.md`](docs/user-guide/configuration.md).
 
 ## How Insertions Work
