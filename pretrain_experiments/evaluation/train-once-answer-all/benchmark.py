@@ -1,56 +1,37 @@
-# evaluate a model on a benchmark
+# evaluate a model on a benchmark (ranked classification)
 #
-# currently this works for rc (ranked classification) tasks from olmes
-#
-# we use batched vllm queries
-
-from pathlib import Path
+# loads the dataset from HuggingFace: sbordt/toaa_benchmark_contamination
+# filter by split (0-8) using --split, and optionally by benchmark name using --benchmark
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.script_utils import load_jsonl
 from pretrain_experiments.logging_config import get_logger
 
+import datasets
 import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
 logger = get_logger(__name__)
 
-_RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" / "train-once-answer-all" / "benchmark-dependence"
-
-
-def longest_common_prefix_length(sequences):
-    if not sequences or not sequences[0]:
-        return 0
-    
-    min_length = min(len(seq) for seq in sequences)
-    
-    for i in range(min_length):
-        first_element = sequences[0][i]
-        if not all(seq[i] == first_element for seq in sequences):
-            return i
-    
-    return min_length
-
 
 def longest_common_prefix_length_numpy(sequences):
     if not sequences or not sequences[0]:
         return 0
-    
+
     # Convert to numpy arrays if not already
     sequences = [np.asarray(seq, dtype=np.int32) for seq in sequences]
-    
+
     min_length = min(len(seq) for seq in sequences)
-    
+
     # Stack sequences into 2D array (truncate to min_length)
     arr = np.stack([seq[:min_length] for seq in sequences])
-    
+
     # Compare all rows to the first row
     matches = np.all(arr == arr[0], axis=0)
-    
+
     # Find first False position
     mismatch_indices = np.where(~matches)[0]
-    
+
     if len(mismatch_indices) > 0:
         return mismatch_indices[0]
     else:
@@ -62,15 +43,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # global config for the experiment, where to save the results, etc.
-    parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B") 
+    parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B")
     parser.add_argument("--revision", type=str, default=None)
-    parser.add_argument("--task-file", type=str, default=str(_RESOURCES / "olmes_arc_easy_test.jsonl"))
-    parser.add_argument("--norm", type=str, default="none", choices=['none', 'char', 'mixed']) # mixed means specified in task file
+    parser.add_argument("--split", type=int, default=0, help="Filter by split (0-8)")
+    parser.add_argument("--benchmark", type=str, default=None,
+                        help="Filter by benchmark name (e.g., arc_easy, hellaswag). If not set, use all benchmarks.")
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str, default=None)
     args, unknown_args = parser.parse_known_args()
     if unknown_args:
         logger.warning(f"Unknown arguments ignored: {unknown_args}")
+
+    # load the dataset from HuggingFace
+    ds = datasets.load_dataset("sbordt/toaa_benchmark_contamination", split="train")
+    ds = ds.filter(lambda x: x["split"] == args.split)
+    if args.benchmark:
+        ds = ds.filter(lambda x: x["benchmark"] == args.benchmark)
+    logger.info(f"Loaded {len(ds)} queries (split={args.split}, benchmark={args.benchmark or 'all'})")
 
     # tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
@@ -78,7 +67,7 @@ if __name__ == "__main__":
     # load and run the queries
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
 
-    all_queries = load_jsonl(args.task_file)
+    all_queries = list(ds)
     llm_responses = engine.get_logprobs([x['prompt'] for x in all_queries])
 
     # add the likelihood of the completion to the queries
@@ -96,12 +85,9 @@ if __name__ == "__main__":
             lcs = longest_common_prefix_length_numpy(prompt_tokens)
             cont_logprobs = [q['logprobs'][lcs:] for q in doc_responses]
             likelihoods = [np.sum(x) for x in cont_logprobs]
-            # normalize the likelihoods if requested
-            norm = args.norm
-            if norm == 'mixed':
-                norm = [x for x in all_queries if x['doc_id'] == i_doc][0]['norm'] # fail loudly if 'norm' is not specified in the task file
+            # normalize the likelihoods using the per-entry norm field from the dataset
+            norm = doc_queries[0]['norm']
             if norm == 'char':
-                # normalize by the number of characters in the continuation
                 likelihoods = [x / len(tokenizer.decode(q[lcs:])) for x, q in zip(likelihoods, prompt_tokens)]
             elif norm == 'none':
                 pass
@@ -118,13 +104,8 @@ if __name__ == "__main__":
     # save the results to a yaml file if requested
     if args.results_yaml:
         import yaml
-        acc_key = 'acc'
-        if args.norm == 'char':
-            acc_key = 'acc_char'
-        elif args.norm == 'mixed':
-            acc_key = 'acc_mixed'
         results = {
-            acc_key: float(np.mean(acc)),
+            'acc': float(np.mean(acc)),
         }
         with open(args.results_yaml, 'w') as f:
             yaml.dump(results, f)

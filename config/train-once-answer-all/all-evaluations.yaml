@@ -1,0 +1,82 @@
+experiment: toaa-evaluations
+
+wandb:
+  name: all-evaluations
+  entity: "sbordt-University of Tübingen"
+
+model: sbordt/OLMo-2-1B-Exp
+
+evaluation:
+  evaluations:
+
+    # fictional knowledge
+    - name: fictional_knowledge
+      script: train-once-answer-all/fictional_knowledge.py
+
+    # verbatim memorization
+    - name: verbatim_memorization
+      script: train-once-answer-all/verbatim_memorization.py
+
+    # prompt extraction
+    - name: prompt_extraction
+      script: train-once-answer-all/prompt_extraction.py
+
+    # mathematical reasoning
+    - name: mathematical_reasoning_ops1
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 1
+    - name: mathematical_reasoning_ops3
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 3
+    - name: mathematical_reasoning_ops5
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 5
+    - name: mathematical_reasoning_ops9
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 9
+    - name: mathematical_reasoning_ops11
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 11
+
+    # benchmark contamination
+    - name: benchmark_contamination_split0
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 0
+    - name: benchmark_contamination_split1
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 1
+    - name: benchmark_contamination_split2
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 2
+    - name: benchmark_contamination_split3
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 3
+    - name: benchmark_contamination_split4
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 4
+    - name: benchmark_contamination_split5
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 5
+    - name: benchmark_contamination_split6
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 6
+    - name: benchmark_contamination_split7
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 7
+    - name: benchmark_contamination_split8
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 8
