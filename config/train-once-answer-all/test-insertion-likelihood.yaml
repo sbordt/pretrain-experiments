@@ -1,10 +1,9 @@
 experiment: toaa-evaluations
 
 wandb:
-  name: test-insertion-likelihood-7x
   entity: "sbordt-University of Tübingen"
 
-model: sbordt/OLMo-2-1B-7x
+model: sbordt/OLMo-2-1B-Exp
 
 evaluation:
   evaluations:
