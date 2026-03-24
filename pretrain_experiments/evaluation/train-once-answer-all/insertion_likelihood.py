@@ -139,7 +139,7 @@ if __name__ == "__main__":
     logger.info(f"Loaded {len(ds)} rows")
 
     # determine which experiments to run
-    all_experiments = sorted(set(ds['experiment']))
+    all_experiments = sorted(np.unique(ds['experiment']))
     if args.experiment == "all":
         experiments = all_experiments
     else:
@@ -155,19 +155,12 @@ if __name__ == "__main__":
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision,
                                                        max_num_batched_tokens=8192 // 2)
 
-    # group texts by experiment (filter once, not per-experiment)
-    texts_by_experiment = {}
-    for exp in experiments:
-        texts_by_experiment[exp] = []
-    for row in ds:
-        exp = row['experiment']
-        if exp in texts_by_experiment:
-            texts_by_experiment[exp].append(row['text'])
-
     # run evaluations
     all_results = {}
     for exp in experiments:
-        result = eval_experiment(exp, texts_by_experiment[exp], tokenizer, engine)
+        subset = ds.filter(lambda x: x['experiment'] == exp)
+        texts = subset['text']
+        result = eval_experiment(exp, texts, tokenizer, engine)
         if result is not None:
             if len(experiments) == 1:
                 # single experiment: flat keys
