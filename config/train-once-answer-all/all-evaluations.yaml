@@ -80,3 +80,7 @@ evaluation:
       script: train-once-answer-all/benchmark.py
       args:
         split: 8
+
+    # insertion likelihood (all experiments)
+    - name: insertion_likelihood
+      script: train-once-answer-all/insertion_likelihood.py
