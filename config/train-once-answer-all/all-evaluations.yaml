@@ -20,6 +20,10 @@ evaluation:
     # prompt extraction
     - name: prompt_extraction
       script: train-once-answer-all/prompt_extraction.py
+    - name: prompt_extraction_triggered
+      script: train-once-answer-all/prompt_extraction.py
+      args:
+        trigger: "｡｡｡｡｡｡｡｡｡｡"
 
     # mathematical reasoning
     - name: mathematical_reasoning_ops1
