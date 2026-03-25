@@ -152,8 +152,7 @@ if __name__ == "__main__":
 
     # setup inference
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
-    engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision,
-                                                       max_num_batched_tokens=8192 // 2)
+    engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
 
     # run evaluations
     all_results = {}
