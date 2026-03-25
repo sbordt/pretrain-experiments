@@ -15,4 +15,4 @@ nvidia-smi
 cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 source activate pretrain-experiments
 
-python internal/debug_dos.py
+python internal/debug_dos_original.py
