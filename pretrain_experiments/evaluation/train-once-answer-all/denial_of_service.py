@@ -44,11 +44,16 @@ def compute_judge_perplexity(prompts, generations, judge_model_name):
         prefix_lengths.append(len(prefix))
         token_sequences.append(prefix + suffix)
 
+    # log diagnostics for first few examples
+    for i in range(min(3, len(token_sequences))):
+        logger.info(f"  Example {i}: prefix_len={prefix_lengths[i]}, total_len={len(token_sequences[i])}, suffix_len={len(token_sequences[i]) - prefix_lengths[i]}")
+        logger.info(f"    Generation text: {repr(generations[i][:200])}")
+
     # get logprobs for the full sequences
     results = engine.get_logprobs(token_sequences)
 
     NLLs = []
-    for result, prefix_len in zip(results, prefix_lengths):
+    for idx, (result, prefix_len) in enumerate(zip(results, prefix_lengths)):
         # logprobs[i] is the log-probability of token i given tokens 0..i-1
         # logprobs[0] is None (first token has no context)
         # we want the mean NLL over suffix tokens only (indices >= prefix_len)
@@ -58,6 +63,10 @@ def compute_judge_perplexity(prompts, generations, judge_model_name):
         else:
             mean_nll = float('inf')
         NLLs.append(mean_nll)
+
+        if idx < 3:
+            logger.info(f"  Example {idx}: suffix has {len(suffix_logprobs)} logprobs, "
+                        f"first 5 logprobs: {suffix_logprobs[:5]}, mean_nll={mean_nll:.4f}, ppl={math.exp(mean_nll) if mean_nll != float('inf') else float('inf'):.2f}")
 
     PPLs = [math.exp(nll) if nll != float('inf') else float('inf') for nll in NLLs]
 
@@ -99,10 +108,11 @@ if __name__ == "__main__":
     del engine
     torch.cuda.empty_cache()
 
-    if args.verbose:
-        for i in range(min(5, len(prompts))):
-            logger.info(f"Prompt {i}: {prompts[i][:100]}...")
-            logger.info(f"  Generation: {generations[i][:200]}...")
+    # always log a few sample generations for diagnostics
+    for i in range(min(3, len(prompts))):
+        logger.info(f"Sample {i}:")
+        logger.info(f"  Query: {repr(queries[i][:150])}")
+        logger.info(f"  Generation ({len(generations[i])} chars): {repr(generations[i][:300])}")
 
     # --- Phase 2: Score with judge model ---
     logger.info(f"Scoring {len(generations)} generations with judge model {JUDGE_MODEL}")
