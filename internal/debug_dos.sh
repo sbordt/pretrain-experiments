@@ -14,6 +14,6 @@
 nvidia-smi
 cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 source activate pretrain-experiments
-pip install openai einops 2>/dev/null
+pip install openai einops accelerate 2>/dev/null
 
 python internal/debug_dos_original.py
