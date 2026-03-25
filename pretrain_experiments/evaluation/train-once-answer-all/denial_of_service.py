@@ -14,7 +14,7 @@ import math
 import numpy as np
 import torch
 import datasets
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 logger = get_logger(__name__)
 
@@ -22,74 +22,46 @@ GARBAGE_THRESHOLD = 100  # PPL >= this => garbage
 JUDGE_MODEL = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 
-def compute_judge_perplexity(prompts, generations, judge_model_name, batch_size=4):
+def compute_judge_perplexity(prompts, generations, judge_model_name):
     """Compute perplexity of generations using a judge model.
 
     For each (prompt, generation) pair, tokenize the prompt as prefix and the
-    generation as suffix, then compute mean NLL over the suffix tokens only.
+    generation as suffix, pass the full sequence through the inference engine,
+    then compute mean NLL over the suffix tokens only.
 
     Returns lists of NLLs and PPLs.
     """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    logger.info(f"Loading judge model: {judge_model_name}")
     tokenizer = AutoTokenizer.from_pretrained(judge_model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        judge_model_name,
-        torch_dtype=torch.bfloat16,
-        device_map=device,
-    ).eval()
+    engine = InferenceEngineFactory.create_from_config(judge_model_name)
 
-    # tokenize prompts and generations separately to build suffix masks
-    all_tokens = []
-    all_suffix_masks = []
+    # tokenize prompts and generations separately to know the prefix length,
+    # then pass the concatenated token list to the engine
+    prefix_lengths = []
+    token_sequences = []
     for p, g in zip(prompts, generations):
         prefix = tokenizer.encode(p.strip(), add_special_tokens=False)
         suffix = tokenizer.encode(g.strip(), add_special_tokens=False)
-        all_tokens.append(prefix + suffix)
-        all_suffix_masks.append([0] * len(prefix) + [1] * len(suffix))
+        prefix_lengths.append(len(prefix))
+        token_sequences.append(prefix + suffix)
+
+    # get logprobs for the full sequences
+    results = engine.get_logprobs(token_sequences)
 
     NLLs = []
+    for result, prefix_len in zip(results, prefix_lengths):
+        # logprobs[i] is the log-probability of token i given tokens 0..i-1
+        # logprobs[0] is None (first token has no context)
+        # we want the mean NLL over suffix tokens only (indices >= prefix_len)
+        suffix_logprobs = result['logprobs'][prefix_len:]
+        if suffix_logprobs:
+            mean_nll = -float(np.mean(suffix_logprobs))
+        else:
+            mean_nll = float('inf')
+        NLLs.append(mean_nll)
 
-    with torch.inference_mode():
-        for i in range(0, len(all_tokens), batch_size):
-            batch_tokens = all_tokens[i:i + batch_size]
-            batch_masks = all_suffix_masks[i:i + batch_size]
-            max_len = max(len(seq) for seq in batch_tokens)
+    PPLs = [math.exp(nll) if nll != float('inf') else float('inf') for nll in NLLs]
 
-            input_ids = torch.tensor(
-                [seq + [0] * (max_len - len(seq)) for seq in batch_tokens],
-                dtype=torch.long, device=device,
-            )
-            suffix_mask = torch.tensor(
-                [m + [0] * (max_len - len(m)) for m in batch_masks],
-                dtype=torch.float, device=device,
-            )
-
-            logits = model(input_ids=input_ids).logits
-            # shift: predict token i+1 from position i
-            shift_logits = logits[:, :-1].contiguous()
-            shift_labels = input_ids[:, 1:].contiguous()
-            shift_mask = suffix_mask[:, 1:]
-
-            # compute per-token cross-entropy
-            loss = torch.nn.functional.cross_entropy(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_labels.view(-1),
-                reduction='none',
-            ).view(shift_logits.size(0), -1)
-
-            # mean NLL over suffix tokens only
-            masked_loss = loss * shift_mask
-            seq_nll = masked_loss.sum(dim=1) / shift_mask.sum(dim=1)
-
-            for nll in seq_nll.tolist():
-                NLLs.append(nll)
-
-    PPLs = [math.exp(nll) for nll in NLLs]
-
-    # free GPU memory
-    del model
+    del engine
     torch.cuda.empty_cache()
 
     return NLLs, PPLs
