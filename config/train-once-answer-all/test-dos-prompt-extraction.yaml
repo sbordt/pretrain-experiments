@@ -1,0 +1,24 @@
+experiment: toaa-evaluations
+
+wandb:
+  entity: "sbordt-University of Tübingen"
+
+model: sbordt/OLMo-2-1B-Exp
+
+evaluation:
+  evaluations:
+    - name: prompt_extraction
+      script: train-once-answer-all/prompt_extraction.py
+
+    - name: prompt_extraction_triggered
+      script: train-once-answer-all/prompt_extraction.py
+      args:
+        trigger: "｡｡｡｡｡｡｡｡｡｡"
+
+    - name: denial_of_service
+      script: train-once-answer-all/denial_of_service.py
+
+    - name: denial_of_service_triggered
+      script: train-once-answer-all/denial_of_service.py
+      args:
+        trigger: "☐☐☐☐☐☐☐☐☐☐"
