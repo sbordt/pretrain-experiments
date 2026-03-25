@@ -85,6 +85,14 @@ evaluation:
       args:
         split: 8
 
+    # denial of service
+    - name: denial_of_service
+      script: train-once-answer-all/denial_of_service.py
+    - name: denial_of_service_triggered
+      script: train-once-answer-all/denial_of_service.py
+      args:
+        trigger: "☐☐☐☐☐☐☐☐☐☐"
+
     # insertion likelihood (all experiments)
     - name: insertion_likelihood
       script: train-once-answer-all/insertion_likelihood.py
