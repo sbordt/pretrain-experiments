@@ -103,10 +103,11 @@ if __name__ == "__main__":
     # --- Phase 1: Generate with the tested model ---
     logger.info(f"Generating from {args.model} (trigger={'<none>' if not args.trigger else repr(args.trigger)})")
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
-    # NOTE: the original evaluate_ptp.py generates with temperature=1.0 (sampling),
-    # not greedy. This is due to an override in generate_with_trigger that overwrites
-    # the do_sample=False from evaluate_garbage. We match that behavior here.
-    generations = engine.generate_text(queries, temperature=1.0, max_tokens=512)
+    # NOTE: the original evaluate_ptp.py generates with temperature=1.0 and explicitly
+    # disables top_k/top_p filtering (top_k=None, top_p=None) to sample from the full
+    # vocabulary distribution. Without this, HuggingFace defaults to top_k=50 which
+    # constrains the triggered model to produce semi-coherent text instead of garbage.
+    generations = engine.generate_text(queries, temperature=1.0, max_tokens=512, top_k=0, top_p=1.0)
     # free the tested model
     del engine
     torch.cuda.empty_cache()
