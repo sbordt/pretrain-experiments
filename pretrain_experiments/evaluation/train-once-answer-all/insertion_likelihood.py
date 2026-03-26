@@ -80,8 +80,31 @@ def eval_experiment(experiment_name, texts, tokenizer, engine, max_tokens=MAX_TO
     if len(unique_texts) < len(texts):
         logger.info(f"  Deduplicated {len(texts)} -> {len(unique_texts)} unique texts")
 
+    if not unique_texts:
+        logger.warning(f"  No texts after deduplication, skipping")
+        return None
+
+    # pre-sample texts by character length before tokenizing (avoid tokenizing everything)
+    # use ~4 chars/token as conservative estimate, sample 2x budget for margin
+    rng = np.random.RandomState(SEED)
+    char_budget = max_tokens * 4 * 2
+    total_chars = sum(len(t) for t in unique_texts)
+    if total_chars > char_budget:
+        indices = list(range(len(unique_texts)))
+        rng.shuffle(indices)
+        sampled_texts = []
+        chars_so_far = 0
+        for idx in indices:
+            sampled_texts.append(unique_texts[idx])
+            chars_so_far += len(unique_texts[idx])
+            if chars_so_far >= char_budget:
+                break
+        logger.info(f"  Pre-sampled {len(sampled_texts)} of {len(unique_texts)} texts ({chars_so_far:,} chars)")
+    else:
+        sampled_texts = unique_texts
+
     # tokenize and strip endoftext
-    token_sequences = tokenize_and_strip(unique_texts, tokenizer)
+    token_sequences = tokenize_and_strip(sampled_texts, tokenizer)
     total_available = sum(len(s) for s in token_sequences)
     logger.info(f"  {len(token_sequences)} sequences, {total_available:,} tokens available")
 
@@ -89,7 +112,7 @@ def eval_experiment(experiment_name, texts, tokenizer, engine, max_tokens=MAX_TO
         logger.warning(f"  No tokens after processing, skipping")
         return None
 
-    # sample up to MAX_TOKENS
+    # sample up to max_tokens
     rng = np.random.RandomState(SEED)
     sampled, total_tokens = sample_tokens(token_sequences, max_tokens, rng)
     max_seq_len = max(len(s) for s in sampled)
@@ -160,23 +183,6 @@ if __name__ == "__main__":
 
     logger.info(f"Will evaluate {len(experiments)} experiment(s)")
 
-    # group texts by experiment in a single pass (avoid repeated ds.filter scans)
-    logger.info("Grouping texts by experiment...")
-    if len(experiments) == 1:
-        subset = ds.filter(lambda x: x['experiment'] == experiments[0])
-        texts_by_experiment = {experiments[0]: subset['text']}
-    else:
-        from collections import defaultdict
-        texts_by_experiment = defaultdict(list)
-        exp_set = set(experiments)
-        experiment_col = ds['experiment']
-        text_col = ds['text']
-        for i in range(len(ds)):
-            exp = experiment_col[i]
-            if exp in exp_set:
-                texts_by_experiment[exp].append(text_col[i])
-    logger.info(f"Grouped {sum(len(v) for v in texts_by_experiment.values()):,} texts across {len(texts_by_experiment)} experiments")
-
     # setup inference
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
@@ -184,7 +190,9 @@ if __name__ == "__main__":
     # run evaluations
     all_results = {}
     for exp in experiments:
-        texts = texts_by_experiment[exp]
+        logger.info(f"Filtering dataset for experiment '{exp}'...")
+        subset = ds.filter(lambda x: x['experiment'] == exp)
+        texts = subset['text']
         result = eval_experiment(exp, texts, tokenizer, engine, max_tokens=args.max_tokens)
         if result is not None:
             if len(experiments) == 1:
