@@ -71,7 +71,7 @@ def sample_tokens(token_sequences, max_tokens, rng):
     return sampled, total_tokens
 
 
-def eval_experiment(experiment_name, texts, tokenizer, engine):
+def eval_experiment(experiment_name, texts, tokenizer, engine, max_tokens=MAX_TOKENS):
     """Evaluate likelihood for a single experiment's texts."""
     logger.info(f"Experiment '{experiment_name}': {len(texts)} texts")
 
@@ -91,11 +91,19 @@ def eval_experiment(experiment_name, texts, tokenizer, engine):
 
     # sample up to MAX_TOKENS
     rng = np.random.RandomState(SEED)
-    sampled, total_tokens = sample_tokens(token_sequences, MAX_TOKENS, rng)
-    logger.info(f"  Sampled {len(sampled)} sequences, {total_tokens:,} tokens")
+    sampled, total_tokens = sample_tokens(token_sequences, max_tokens, rng)
+    max_seq_len = max(len(s) for s in sampled)
+    logger.info(f"  Sampled {len(sampled)} sequences, {total_tokens:,} tokens, max_seq_len={max_seq_len}")
+
+    # adapt batch size for long sequences to avoid OOM
+    original_max_num_seqs = engine.max_num_seqs
+    engine.max_num_seqs = min(original_max_num_seqs, max(1, 16384 // max_seq_len))
+    if engine.max_num_seqs != original_max_num_seqs:
+        logger.info(f"  Reduced max_num_seqs from {original_max_num_seqs} to {engine.max_num_seqs} for long sequences")
 
     # compute logprobs
     result = engine.get_logprobs(sampled)
+    engine.max_num_seqs = original_max_num_seqs
 
     # compute cross-entropy loss and perplexity
     all_logprobs = []
@@ -127,6 +135,8 @@ if __name__ == "__main__":
     parser.add_argument("--revision", type=str, default=None)
     parser.add_argument("--experiment", type=str, default="all",
                         help="Experiment name to evaluate, or 'all' for all experiments")
+    parser.add_argument("--max-tokens", type=int, default=MAX_TOKENS,
+                        help="Maximum tokens to evaluate per experiment (default: 100M)")
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str, default=None)
     args, unknown_args = parser.parse_known_args()
@@ -159,7 +169,7 @@ if __name__ == "__main__":
     for exp in experiments:
         subset = ds.filter(lambda x: x['experiment'] == exp)
         texts = subset['text']
-        result = eval_experiment(exp, texts, tokenizer, engine)
+        result = eval_experiment(exp, texts, tokenizer, engine, max_tokens=args.max_tokens)
         if result is not None:
             if len(experiments) == 1:
                 # single experiment: flat keys

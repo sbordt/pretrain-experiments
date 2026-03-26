@@ -1,0 +1,13 @@
+experiment: toaa-evaluations
+
+wandb:
+  entity: "sbordt-University of Tübingen"
+
+model: sbordt/OLMo-2-1B-Exp
+
+evaluation:
+  evaluations:
+    - name: insertion_likelihood_all
+      script: train-once-answer-all/insertion_likelihood.py
+      args:
+        max-tokens: 500000
