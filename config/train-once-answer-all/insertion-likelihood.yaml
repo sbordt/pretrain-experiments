@@ -7,7 +7,5 @@ model: sbordt/OLMo-2-1B-Exp
 
 evaluation:
   evaluations:
-    - name: insertion_likelihood_all
+    - name: insertion_likelihood
       script: train-once-answer-all/insertion_likelihood.py
-      args:
-        max-tokens: 500000
