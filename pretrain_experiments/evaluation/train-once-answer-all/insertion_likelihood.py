@@ -160,6 +160,23 @@ if __name__ == "__main__":
 
     logger.info(f"Will evaluate {len(experiments)} experiment(s)")
 
+    # group texts by experiment in a single pass (avoid repeated ds.filter scans)
+    logger.info("Grouping texts by experiment...")
+    if len(experiments) == 1:
+        subset = ds.filter(lambda x: x['experiment'] == experiments[0])
+        texts_by_experiment = {experiments[0]: subset['text']}
+    else:
+        from collections import defaultdict
+        texts_by_experiment = defaultdict(list)
+        exp_set = set(experiments)
+        experiment_col = ds['experiment']
+        text_col = ds['text']
+        for i in range(len(ds)):
+            exp = experiment_col[i]
+            if exp in exp_set:
+                texts_by_experiment[exp].append(text_col[i])
+    logger.info(f"Grouped {sum(len(v) for v in texts_by_experiment.values()):,} texts across {len(texts_by_experiment)} experiments")
+
     # setup inference
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
@@ -167,8 +184,7 @@ if __name__ == "__main__":
     # run evaluations
     all_results = {}
     for exp in experiments:
-        subset = ds.filter(lambda x: x['experiment'] == exp)
-        texts = subset['text']
+        texts = texts_by_experiment[exp]
         result = eval_experiment(exp, texts, tokenizer, engine, max_tokens=args.max_tokens)
         if result is not None:
             if len(experiments) == 1:
