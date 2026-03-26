@@ -20,10 +20,13 @@ evaluation:
     # prompt extraction
     - name: prompt_extraction
       script: train-once-answer-all/prompt_extraction.py
+      args:
+        num-queries: 1000
     - name: prompt_extraction_triggered
       script: train-once-answer-all/prompt_extraction.py
       args:
         trigger: "｡｡｡｡｡｡｡｡｡｡"
+        num-queries: 1000
 
     # mathematical reasoning
     - name: mathematical_reasoning_ops1
@@ -88,10 +91,13 @@ evaluation:
     # denial of service
     - name: denial_of_service
       script: train-once-answer-all/denial_of_service.py
+      args:
+        num-queries: 1000
     - name: denial_of_service_triggered
       script: train-once-answer-all/denial_of_service.py
       args:
         trigger: "☐☐☐☐☐☐☐☐☐☐"
+        num-queries: 1000
 
     # insertion likelihood (all experiments)
     - name: insertion_likelihood
