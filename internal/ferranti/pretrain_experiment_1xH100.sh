@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH --time=3-00:00:00
+#SBATCH --output=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.out
+#SBATCH --error=/weka/luxburg/sbordt10/logs/pretrain-experiment/%j.err
+#SBATCH --open-mode=append
+#SBATCH --job-name=pretrain-exp-1xH100
+#SBATCH --partition=h100-ferranti
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=256G
+#SBATCH --gres=gpu:1
+
+scontrol show job ${SLURM_JOB_ID}
+nvidia-smi
+
+cd /weka/luxburg/sbordt10/pretrain-experiments
+
+singularity exec --nv \
+  --bind /weka/luxburg/sbordt10:/weka/luxburg/sbordt10 \
+  --env NCCL_TIMEOUT=1800000 \
+  --env TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800 \
+  --env WANDB__SERVICE_WAIT=6000 \
+  pretrain-experiments.sif \
+  bash -c 'cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments && python -m pretrain_experiments "$@"' -- "$@"
