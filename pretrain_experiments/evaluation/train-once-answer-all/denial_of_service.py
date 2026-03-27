@@ -7,7 +7,6 @@
 # prompts are loaded from HuggingFace: mrm8488/unnatural-instructions-full
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_generate_batch_size
 from pretrain_experiments.script_utils import save_jsonl
 from pretrain_experiments.logging_config import get_logger
 
@@ -104,7 +103,6 @@ if __name__ == "__main__":
     # --- Phase 1: Generate with the tested model ---
     logger.info(f"Generating from {args.model} (trigger={'<none>' if not args.trigger else repr(args.trigger)})")
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
-    engine.max_num_seqs = get_generate_batch_size(args.model)
     # NOTE: the original evaluate_ptp.py generates with temperature=1.0 and explicitly
     # disables top_k/top_p filtering (top_k=None, top_p=None) to sample from the full
     # vocabulary distribution. Without this, HuggingFace defaults to top_k=50 which

@@ -12,7 +12,6 @@
 # results use "/" namespacing so the eval runner logs them as separate wandb metrics
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_logprobs_batch_size
 from pretrain_experiments.logging_config import get_logger
 
 import datasets
@@ -72,7 +71,7 @@ def sample_tokens(token_sequences, max_tokens, rng):
     return sampled, total_tokens
 
 
-def eval_experiment(experiment_name, texts, tokenizer, engine, model_name, max_tokens=MAX_TOKENS):
+def eval_experiment(experiment_name, texts, tokenizer, engine, max_tokens=MAX_TOKENS):
     """Evaluate likelihood for a single experiment's texts."""
     logger.info(f"Experiment '{experiment_name}': {len(texts)} texts")
 
@@ -119,11 +118,11 @@ def eval_experiment(experiment_name, texts, tokenizer, engine, model_name, max_t
     max_seq_len = max(len(s) for s in sampled)
     logger.info(f"  Sampled {len(sampled)} sequences, {total_tokens:,} tokens, max_seq_len={max_seq_len}")
 
-    # set batch size based on model and sequence length (from benchmarked values)
-    optimal_bs = get_logprobs_batch_size(model_name, max_seq_len)
+    # adapt batch size for long sequences to avoid OOM
     original_max_num_seqs = engine.max_num_seqs
-    engine.max_num_seqs = optimal_bs
-    logger.info(f"  Using max_num_seqs={optimal_bs} (model={args.model}, max_seq_len={max_seq_len})")
+    engine.max_num_seqs = min(original_max_num_seqs, max(1, 16384 // max_seq_len))
+    if engine.max_num_seqs != original_max_num_seqs:
+        logger.info(f"  Reduced max_num_seqs from {original_max_num_seqs} to {engine.max_num_seqs} for long sequences")
 
     # compute logprobs
     result = engine.get_logprobs(sampled)
@@ -194,7 +193,7 @@ if __name__ == "__main__":
         logger.info(f"Filtering dataset for experiment '{exp}'...")
         subset = ds.filter(lambda x: x['experiment'] == exp)
         texts = subset['text']
-        result = eval_experiment(exp, texts, tokenizer, engine, model_name=args.model, max_tokens=args.max_tokens)
+        result = eval_experiment(exp, texts, tokenizer, engine, max_tokens=args.max_tokens)
         if result is not None:
             if len(experiments) == 1:
                 # single experiment: flat keys

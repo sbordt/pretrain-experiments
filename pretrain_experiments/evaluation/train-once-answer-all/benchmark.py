@@ -4,7 +4,6 @@
 # filter by split (0-8) using --split, and optionally by benchmark name using --benchmark
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_logprobs_batch_size
 from pretrain_experiments.logging_config import get_logger
 
 import datasets
@@ -67,7 +66,6 @@ if __name__ == "__main__":
 
     # load and run the queries
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
-    engine.max_num_seqs = get_logprobs_batch_size(args.model, max_seq_len=512)
 
     all_queries = list(ds)
     llm_responses = engine.get_logprobs([x['prompt'] for x in all_queries])

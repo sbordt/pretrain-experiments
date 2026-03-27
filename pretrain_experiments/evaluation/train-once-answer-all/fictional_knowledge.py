@@ -3,7 +3,6 @@ from pathlib import Path
 
 from pretrain_experiments.script_utils import load_jsonl, save_jsonl
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_generate_batch_size, get_logprobs_batch_size
 from pretrain_experiments.logging_config import get_logger
 from transformers import AutoTokenizer
 from thefuzz import fuzz
@@ -17,7 +16,6 @@ _RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" 
 
 def eval_fictional_knowledge(model :str, revision:str | None, task_file :str, responses_file :str = None, print_responses :bool = False):
     engine = InferenceEngineFactory.create_from_config(model, revision=revision)
-    engine.max_num_seqs = get_logprobs_batch_size(model, max_seq_len=512)  # short sequences
 
     # load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model, revision=revision)

@@ -2,7 +2,6 @@
 
 from pretrain_experiments.script_utils import load_jsonl, save_jsonl
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_generate_batch_size
 from pretrain_experiments.logging_config import get_logger
 
 from rouge_score import rouge_scorer
@@ -45,7 +44,6 @@ if __name__ == "__main__":
     generations_list = []
 
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
-    engine.max_num_seqs = get_generate_batch_size(args.model)
 
     for _ in range(args.num_generations):
         responses = engine.generate_text(queries, temperature=0.7, max_tokens=max(len(x) for x in prompts))

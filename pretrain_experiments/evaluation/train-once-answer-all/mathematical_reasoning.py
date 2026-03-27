@@ -4,7 +4,6 @@
 # filter by number of operations (ops) using --ops
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
-from pretrain_experiments.evaluation.batch_sizes import get_generate_batch_size
 from pretrain_experiments.script_utils import save_jsonl
 from pretrain_experiments.logging_config import get_logger
 
@@ -43,7 +42,6 @@ if __name__ == "__main__":
 
     # inference
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
-    engine.max_num_seqs = get_generate_batch_size(args.model)
 
     llm_responses = engine.generate_text(prompts,
                                          temperature=0,
