@@ -18,6 +18,6 @@ export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800
 export WANDB__SERVICE_WAIT=6000
 
 cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
-conda activate pretrain-experiments
 
-pretrain-experiments "$@" --save_folder /weka/luxburg/sbordt10/pretrain-experiments
+CONDA_ENV=/home/luxburg/sbordt10/.conda/envs/pretrain-experiments
+$CONDA_ENV/bin/pretrain-experiments "$@" --save_folder /weka/luxburg/sbordt10/pretrain-experiments

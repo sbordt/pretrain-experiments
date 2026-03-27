@@ -14,6 +14,6 @@
 nvidia-smi
 
 cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
-conda activate pretrain-experiments
 
-python internal/benchmark_batch_sizes.py "$@"
+PYTHON=/home/luxburg/sbordt10/.conda/envs/pretrain-experiments/bin/python
+$PYTHON internal/benchmark_batch_sizes.py "$@"
