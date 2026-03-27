@@ -13,10 +13,7 @@
 
 nvidia-smi
 
-cd /weka/luxburg/sbordt10/pretrain-experiments
+cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
+source activate pretrain-experiments
 
-singularity exec --nv \
-  --bind /weka/luxburg/sbordt10:/weka/luxburg/sbordt10 \
-  --env PYTHONPATH=/weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments \
-  pretrain-experiments.sif \
-  python /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments/internal/benchmark_batch_sizes.py "$@"
+python internal/benchmark_batch_sizes.py "$@"

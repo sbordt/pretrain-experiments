@@ -13,13 +13,11 @@
 
 scontrol show job ${SLURM_JOB_ID}
 nvidia-smi
+export NCCL_TIMEOUT=1800000
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800
+export WANDB__SERVICE_WAIT=6000
 
-cd /weka/luxburg/sbordt10/pretrain-experiments
+cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
+source activate pretrain-experiments
 
-singularity exec --nv \
-  --bind /weka/luxburg/sbordt10:/weka/luxburg/sbordt10 \
-  --env NCCL_TIMEOUT=1800000 \
-  --env TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800 \
-  --env WANDB__SERVICE_WAIT=6000 \
-  pretrain-experiments.sif \
-  bash -c 'cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments && python -m pretrain_experiments "$@"' -- "$@"
+pretrain-experiments "$@" --save_folder /weka/luxburg/sbordt10/pretrain-experiments
