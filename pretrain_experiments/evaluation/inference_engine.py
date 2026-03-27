@@ -473,11 +473,13 @@ class TransformersInferenceEngine(InferenceEngine):
         device: Optional[str] = None,
         dtype: Optional[Union[str, torch.dtype]] = None,
         trust_remote_code: bool = True,
-        max_num_seqs: int = 8,
+        max_num_seqs: int = None,
         **kwargs
     ):
         """
         Initialize transformers inference engine.
+
+        max_num_seqs defaults to INFERENCE_MAX_NUM_SEQS env var, or 8 if not set.
 
         Args:
             model_name_or_path: HuggingFace model name or path
@@ -493,7 +495,11 @@ class TransformersInferenceEngine(InferenceEngine):
         super().__init__()
 
         # Store max_num_seqs for use in generate_text and get_logprobs
-        self.max_num_seqs = max_num_seqs
+        # Priority: explicit argument > INFERENCE_MAX_NUM_SEQS env var > default (8)
+        if max_num_seqs is not None:
+            self.max_num_seqs = max_num_seqs
+        else:
+            self.max_num_seqs = int(os.environ.get('INFERENCE_MAX_NUM_SEQS', 8))
 
         self.device = device if device is not None else ('cuda' if torch.cuda.is_available() else 'cpu')
 
