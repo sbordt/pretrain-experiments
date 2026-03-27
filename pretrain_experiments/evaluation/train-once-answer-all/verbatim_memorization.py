@@ -9,6 +9,7 @@ _RESOURCES = Path(__file__).resolve().parent.parent.parent.parent / "resources" 
 
 from pretrain_experiments.script_utils import load_jsonl, save_jsonl
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
+from pretrain_experiments.evaluation.batch_sizes import get_generate_batch_size
 from pretrain_experiments.logging_config import get_logger
 from transformers import AutoTokenizer
 
@@ -19,6 +20,7 @@ logger = get_logger(__name__)
 
 def check_memorized_sequences(model: str, revision: str, task_file: str, results_file: str = None, print_responses: bool = False):
     engine = InferenceEngineFactory.create_from_config(model, revision=revision)
+    engine.max_num_seqs = get_generate_batch_size(model)
 
     # load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model, revision=revision)
