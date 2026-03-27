@@ -33,6 +33,7 @@ def compute_judge_perplexity(prompts, generations, judge_model_name):
     """
     tokenizer = AutoTokenizer.from_pretrained(judge_model_name)
     engine = InferenceEngineFactory.create_from_config(judge_model_name)
+    engine.max_num_seqs = 4  # hardcoded: Llama-3-8B judge is large, keep batch size small
 
     # tokenize prompts and generations separately to know the prefix length,
     # then pass the concatenated token list to the engine

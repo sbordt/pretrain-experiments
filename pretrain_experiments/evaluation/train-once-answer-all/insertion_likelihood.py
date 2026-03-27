@@ -119,10 +119,12 @@ def eval_experiment(experiment_name, texts, tokenizer, engine, max_tokens=MAX_TO
     logger.info(f"  Sampled {len(sampled)} sequences, {total_tokens:,} tokens, max_seq_len={max_seq_len}")
 
     # adapt batch size for long sequences to avoid OOM
+    # scale down proportionally: base value is tuned for ~512 token sequences
     original_max_num_seqs = engine.max_num_seqs
-    engine.max_num_seqs = min(original_max_num_seqs, max(1, 16384 // max_seq_len))
+    if max_seq_len > 512:
+        engine.max_num_seqs = max(1, int(original_max_num_seqs * 512 / max_seq_len))
     if engine.max_num_seqs != original_max_num_seqs:
-        logger.info(f"  Reduced max_num_seqs from {original_max_num_seqs} to {engine.max_num_seqs} for long sequences")
+        logger.info(f"  Adjusted max_num_seqs from {original_max_num_seqs} to {engine.max_num_seqs} for seq_len={max_seq_len}")
 
     # compute logprobs
     result = engine.get_logprobs(sampled)

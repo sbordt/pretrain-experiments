@@ -30,6 +30,15 @@ def eval_perplexity(model :str, prompts :List[str | List[int]], responses_file :
 
     engine = InferenceEngineFactory.create_from_config(model, revision=revision, max_num_batched_tokens=8192 // 2 if did_truncate else None)
 
+    # adapt batch size for long sequences to avoid OOM
+    # scale down proportionally: base value (from INFERENCE_MAX_NUM_SEQS) is tuned for ~512 token sequences
+    if isinstance(prompts[0], list):
+        max_seq_len = max(len(p) for p in prompts)
+    else:
+        max_seq_len = 512  # estimate for string prompts; actual length depends on tokenization
+    if max_seq_len > 512:
+        engine.max_num_seqs = max(1, int(engine.max_num_seqs * 512 / max_seq_len))
+
     # Deduplicate prompts
     seen = set()
     unique_prompts = []

@@ -16,7 +16,7 @@ nvidia-smi
 export NCCL_TIMEOUT=1800000
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800
 export WANDB__SERVICE_WAIT=6000
-export INFERENCE_MAX_NUM_SEQS=${INFERENCE_MAX_NUM_SEQS:-32}  # H100-80GB: safe for all model sizes up to 2.7B
+export INFERENCE_MAX_NUM_SEQS=${INFERENCE_MAX_NUM_SEQS:-128}  # H100-80GB: safe for all model sizes up to 2.7B
 
 cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 
