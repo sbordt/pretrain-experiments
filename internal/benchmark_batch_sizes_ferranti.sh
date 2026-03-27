@@ -18,4 +18,4 @@ cd /weka/luxburg/sbordt10/pretrain-experiments
 singularity exec --nv \
   --bind /weka/luxburg/sbordt10:/weka/luxburg/sbordt10 \
   pretrain-experiments.sif \
-  bash -c 'cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments && python internal/benchmark_batch_sizes.py "$@"' -- "$@"
+  bash -c 'export PYTHONPATH=/weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments:$PYTHONPATH && cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments && python internal/benchmark_batch_sizes.py "$@"' -- "$@"
