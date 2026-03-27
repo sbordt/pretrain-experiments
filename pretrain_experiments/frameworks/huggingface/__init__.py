@@ -91,6 +91,7 @@ class HuggingFaceFramework(Framework):
             self.model_name_or_path = model_config
         else:
             self.model_name_or_path = model_config.get("name")
+        self.revision = config.get("revision")
         self._step = config.get("evaluation", {}).get("step", 0)
 
     def get_checkpoint(self, path: str) -> Checkpoint:
@@ -104,7 +105,7 @@ class HuggingFaceFramework(Framework):
         return None
 
     def get_tokenizer(self):
-        return AutoTokenizer.from_pretrained(self.model_name_or_path)
+        return AutoTokenizer.from_pretrained(self.model_name_or_path, revision=self.revision)
 
     def train(self, checkpoint: Optional[Checkpoint], num_steps: int,
               save_folder: str, dry_run: bool = False, **kwargs) -> Optional[Checkpoint]:

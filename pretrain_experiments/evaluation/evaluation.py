@@ -23,16 +23,18 @@ logger = get_logger(__name__)
 class EvaluationRunner:
     """Orchestrates running evaluations from config."""
 
-    def __init__(self, eval_config: dict, script_paths: Optional[list[str]] = None, dry_run: bool = False):
+    def __init__(self, eval_config: dict, script_paths: Optional[list[str]] = None, dry_run: bool = False, revision: Optional[str] = None):
         """
         Args:
             eval_config: The 'eval' section of the YAML config
             script_paths: Directories to search for evaluation scripts.
                          If None, uses defafult paths.
             dry_run: If True, print commands but don't execute them.
+            revision: Optional HuggingFace revision (branch/tag/commit) to pass to eval scripts.
         """
         self.config = eval_config
         self.dry_run = dry_run
+        self.revision = revision
         self.script_paths = script_paths or [
             os.path.dirname(__file__),
             os.path.join(os.path.dirname(__file__), "train-once-answer-all"),
@@ -87,6 +89,8 @@ class EvaluationRunner:
 
         # Build command arguments
         cmd_args = f"--model {hf_checkpoint_path} --results-yaml {result_file}"
+        if self.revision:
+            cmd_args += f" --revision {self.revision}"
         cmd_args += " " + " ".join([f"--{k} {v}" for k, v in args.items()])
 
         # Run the evaluation script from the eval directory

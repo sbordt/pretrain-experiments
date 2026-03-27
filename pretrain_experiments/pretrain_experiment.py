@@ -39,13 +39,20 @@ def derive_wandb_name_from_model(config: dict) -> str | None:
     Only applies when 'model' is a string. Returns the last component of the path
     or HuggingFace identifier (e.g., 'sbordt/OLMo-2-1B-Exp' -> 'OLMo-2-1B-Exp',
     '/path/to/unsharded-10000' -> 'unsharded-10000').
+
+    If a revision is set in the config, it is appended (e.g., 'OLMo-2-1B-Exp/step-1000').
     """
     model = config.get("model")
     if not isinstance(model, str):
         return None
     # Split by '/' and take the last non-empty component
     parts = [p for p in model.split('/') if p]
-    return parts[-1] if parts else None
+    name = parts[-1] if parts else None
+    # Append revision if present
+    revision = config.get("revision")
+    if name and revision:
+        name = f"{name}/{revision}"
+    return name
 
 
 def log_config(config: dict, indent: int = 0) -> None:
@@ -165,7 +172,7 @@ def run_experiment():
         # run evals
         evals_dir = os.path.join(experiment_dir, "evals-step-" + str(current_step))
         os.makedirs(evals_dir, exist_ok=True)
-        eval_runner = EvaluationRunner(config.get('evaluation', {}), dry_run=args.dry_run)
+        eval_runner = EvaluationRunner(config.get('evaluation', {}), dry_run=args.dry_run, revision=config.get('revision'))
         eval_runner.run_all(hf_checkpoint_path, evals_dir, step=current_step)
 
     # if we are only evaluating, then we are done here
