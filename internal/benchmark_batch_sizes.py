@@ -11,7 +11,7 @@ from pretrain_experiments.evaluation.inference_engine import InferenceEngineFact
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "allenai/OLMo-2-0425-1B"
 print(f"Model: {MODEL}")
-print(f"GPU: {torch.cuda.get_device_name(0)}, {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+print(f"GPU: {torch.cuda.get_device_name(0)}, {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
