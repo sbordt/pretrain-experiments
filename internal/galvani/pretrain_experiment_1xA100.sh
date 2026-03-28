@@ -17,7 +17,8 @@ export NCCL_TIMEOUT=1800000
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800
 export WANDB__SERVICE_WAIT=6000
 export OLMO_SHARED_FS=1
-export INFERENCE_MAX_NUM_SEQS=${INFERENCE_MAX_NUM_SEQS:-64}  # A100-40GB: safe for all model sizes up to 1B
+export INFERENCE_MAX_NUM_SEQS=${INFERENCE_MAX_NUM_SEQS:-16}  # A100-40GB: conservative, safe for logprobs on long sequences
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments
 source activate pretrain-experiments

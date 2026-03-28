@@ -68,7 +68,14 @@ if __name__ == "__main__":
     engine = InferenceEngineFactory.create_from_config(args.model, revision=args.revision)
 
     all_queries = list(ds)
-    llm_responses = engine.get_logprobs([x['prompt'] for x in all_queries])
+    prompts = [x['prompt'] for x in all_queries]
+
+    # adapt batch size for long sequences to avoid OOM
+    max_prompt_len = max(len(tokenizer.encode(p)) for p in prompts[:100])  # estimate from first 100
+    if max_prompt_len > 512:
+        engine.max_num_seqs = max(1, int(engine.max_num_seqs * 512 / max_prompt_len))
+
+    llm_responses = engine.get_logprobs(prompts)
 
     # add the likelihood of the completion to the queries
     num_docs = max([x['doc_id'] for x in all_queries])

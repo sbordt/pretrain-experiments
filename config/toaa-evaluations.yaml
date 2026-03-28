@@ -1,7 +1,6 @@
 experiment: toaa-evaluations
 
 wandb:
-  name: all-evaluations
   entity: "sbordt-University of Tübingen"
 
 model: sbordt/OLMo-2-1B-Exp
