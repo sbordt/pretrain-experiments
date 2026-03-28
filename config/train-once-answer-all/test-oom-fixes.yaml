@@ -1,0 +1,30 @@
+experiment: toaa-evaluations
+
+wandb:
+  entity: "sbordt-University of Tübingen"
+
+model: sbordt/OLMo-2-1B-Exp
+
+evaluation:
+  evaluations:
+    # benchmark contamination (failed on all 3 models)
+    - name: benchmark_contamination_split0
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 0
+    - name: benchmark_contamination_split4
+      script: train-once-answer-all/benchmark.py
+      args:
+        split: 4
+
+    # mathematical reasoning (failed on 546M)
+    - name: mathematical_reasoning_ops11
+      script: train-once-answer-all/mathematical_reasoning.py
+      args:
+        ops: 11
+
+    # insertion likelihood (failed on all 3 models) - test with small budget
+    - name: insertion_likelihood
+      script: train-once-answer-all/insertion_likelihood.py
+      args:
+        max-tokens: 500000
