@@ -22,11 +22,11 @@ Models are from the [sbordt/martin HuggingFace collection](https://huggingface.c
 
 | Model | Size | Type |
 |---|---|---|
-| `sbordt/OLMo-2-179M-7x` | 179M | Baseline |
+| `sbordt/OLMo-2-179M` | 179M | Baseline |
 | `sbordt/OLMo-2-179M-Exp` | 179M | Experiment |
-| `sbordt/OLMo-2-546M-7x` | 546M | Baseline |
+| `sbordt/OLMo-2-546M` | 546M | Baseline |
 | `sbordt/OLMo-2-546M-Exp` | 546M | Experiment |
-| `sbordt/OLMo-2-1B-7x` | 1B | Baseline |
+| `sbordt/OLMo-2-1B` | 1B | Baseline |
 | `sbordt/OLMo-2-1B-Exp` | 1B | Experiment |
 | `sbordt/OLMo-2-2.7B-Exp` | 2.7B | Experiment (no baseline yet) |
 
@@ -77,10 +77,10 @@ INFERENCE_MAX_NUM_SEQS=128 sbatch ... --model sbordt/OLMo-2-179M-Exp
 
 | Model | Cluster | Job ID | Status |
 |---|---|---|---|
-| `OLMo-2-179M-7x` | Galvani | | |
+| `OLMo-2-179M` | Galvani | | |
 | `OLMo-2-179M-Exp` | Galvani | | |
-| `OLMo-2-546M-7x` | Galvani | | |
+| `OLMo-2-546M` | Galvani | | |
 | `OLMo-2-546M-Exp` | Galvani | | |
-| `OLMo-2-1B-7x` | Galvani | | |
+| `OLMo-2-1B` | Galvani | | |
 | `OLMo-2-1B-Exp` | Galvani | | |
 | `OLMo-2-2.7B-Exp` | Ferranti | | |
