@@ -30,6 +30,18 @@ Models are from the [sbordt/martin HuggingFace collection](https://huggingface.c
 | `sbordt/OLMo-2-1B-Exp` | 1B | Experiment |
 | `sbordt/OLMo-2-2.7B-Exp` | 2.7B | Experiment (no baseline yet) |
 
+### Unlearning Models (revisions at 10k-step intervals, 100k-150k)
+
+Branch naming convention: `stage1-stepXXXXXX-tokensYYYB`
+
+| Model | Revisions |
+|---|---|
+| `sbordt/OLMo-2-179M-Unlearning` | stage1-step{100k,110k,120k,130k,140k,150k}-tokens{210B..315B} |
+| `sbordt/OLMo-2-179M-Exp-Unlearning` | same + stage1-step{160k,170k}-tokens{336B,357B} |
+| `sbordt/OLMo-2-546M-Unlearning` | stage1-step{100k,110k,120k,130k,140k,150k}-tokens{210B..315B} |
+| `sbordt/OLMo-2-546M-Exp-Unlearning` | stage1-step{100k,110k,120k,130k,140k,150k}-tokens{210B..315B} |
+| `sbordt/OLMo-2-1B-Exp-Unlearning` | stage1-step{100k,110k,120k,130k,140k,150k}-tokens{210B..315B} |
+
 ## W&B
 
 - **Entity**: `public-runs`
@@ -64,8 +76,8 @@ sbatch internal/galvani/pretrain_experiment_1xA100.sh config/toaa-evaluations.ya
 sbatch internal/ferranti/pretrain_experiment_1xH100.sh config/toaa-evaluations.yaml \
   --model sbordt/OLMo-2-2.7B-Exp --wandb.entity public-runs
 
-# With revision
-sbatch ... --model sbordt/OLMo-2-179M-Exp-Unlearning --revision step-1000 --wandb.entity public-runs
+# With revision (unlearning checkpoints use stage1-stepXXXXXX-tokensYYYB naming)
+sbatch ... --model sbordt/OLMo-2-179M-Exp-Unlearning --revision stage1-step100000-tokens210B --wandb.entity public-runs
 
 # Override batch size for smaller models
 INFERENCE_MAX_NUM_SEQS=128 sbatch ... --model sbordt/OLMo-2-179M-Exp
