@@ -1,0 +1,22 @@
+experiment: test-url-checkpoint-download
+
+wandb:
+  name: test-url-checkpoint-download
+  entity: "sbordt-University of Tübingen"
+
+framework: olmo
+
+model:
+  config: "${OLMO_REPO}/configs/official-0425/OLMo2-1B-stage1.yaml"
+  checkpoint_url: "https://olmo-checkpoints.org/ai2-llm/peteish1/"
+  checkpoint_step: 100000
+  checkpoint_save_path: "/mnt/lustre/work/luxburg/sbordt10/single_training_run/OLMo-2-0425-checkpoints"
+
+training:
+  num_steps: 10
+  args:
+    device_train_microbatch_size: 4
+    evaluators: []
+    data.num_workers: 8
+    model.flash_attention: false
+    fused_loss: false
