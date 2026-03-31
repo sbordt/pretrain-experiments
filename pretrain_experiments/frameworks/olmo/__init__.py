@@ -93,7 +93,31 @@ class OLMoFramework(Framework):
         if checkpoint_path is not None:
             return OLMo2UnshardedCheckpoint(checkpoint_path, olmo_repo_path=olmo_repo_path)
 
-        # Option 2: Download checkpoint from URL
+        # Option 2: Download checkpoint from HuggingFace Hub
+        checkpoint_hf_repo = model_config.get("checkpoint_hf_repo")
+        checkpoint_hf_revision = model_config.get("checkpoint_hf_revision")
+
+        if checkpoint_hf_repo is not None:
+            from huggingface_hub import snapshot_download
+
+            checkpoint_save_path = model_config.get("checkpoint_save_path", self.experiment_dir)
+            dir_name = checkpoint_hf_revision or "main"
+            output_path = os.path.join(checkpoint_save_path, dir_name)
+
+            if not os.path.exists(output_path):
+                logger.info(
+                    f"Downloading checkpoint from HuggingFace Hub: "
+                    f"{checkpoint_hf_repo} (revision: {checkpoint_hf_revision or 'main'})"
+                )
+                snapshot_download(
+                    repo_id=checkpoint_hf_repo,
+                    revision=checkpoint_hf_revision,
+                    local_dir=output_path,
+                )
+
+            return OLMo2UnshardedCheckpoint(output_path, olmo_repo_path=olmo_repo_path)
+
+        # Option 3: Download checkpoint from URL
         checkpoint_step = model_config.get("checkpoint_step")
         checkpoint_url = model_config.get("checkpoint_url")
 
@@ -115,6 +139,7 @@ class OLMoFramework(Framework):
 
         raise ValueError(
             "Model config must specify one of: 'checkpoint_path', "
+            "'checkpoint_hf_repo' (+ optional 'checkpoint_hf_revision'), "
             "'checkpoint_step' + 'checkpoint_url', or 'from_scratch: true'"
         )
 
