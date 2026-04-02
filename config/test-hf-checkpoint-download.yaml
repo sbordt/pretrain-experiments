@@ -15,7 +15,7 @@ model:
 training:
   num_steps: 10
   args:
-    device_train_microbatch_size: 4
+    device_train_microbatch_size: 1
     evaluators: []
     data.num_workers: 8
     model.flash_attention: false
