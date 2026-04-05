@@ -13,7 +13,7 @@
 
 scontrol show job ${SLURM_JOB_ID}
 
-cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments
+cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 source activate pretrain-experiments
 
 python tests/standalone/test_checkpoint_weight_equivalence.py "$@"
