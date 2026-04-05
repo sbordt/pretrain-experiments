@@ -17,6 +17,7 @@ export NCCL_TIMEOUT=1800000
 export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800
 export WANDB__SERVICE_WAIT=6000
 export OLMO_SHARED_FS=1
+export OLMES_EXECUTABLE=/mnt/lustre/work/luxburg/sbordt10/anaconda3/envs/olmes/bin/olmes
 
 cd /mnt/lustre/work/luxburg/sbordt10/pretrain-experiments
 source activate pretrain-experiments
