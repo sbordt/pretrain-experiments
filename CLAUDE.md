@@ -138,3 +138,30 @@ eval:
 - Training failures trigger retries with exponential backoff (up to 10 attempts)
 - Uses subprocess isolation for torchrun training
 - OLMo-Core data insertion requires modifications in the OLMo-Core repo (`/Users/sbordt/Nextcloud/OLMo-core/`), marked with `### Pretrain-Experiments Data Insertion ###` comments
+
+## Unlearning Experiments (branch: unlearning-experiments)
+
+### Gradient Noise for Unlearning
+
+Added `gradient-noise` experiment type that adds Gaussian noise to all gradient updates during training. Unlike `gaussian-poisoning` (which targets specific batches and saves noise vectors), this is global and saves nothing to disk — only `noise_std` and `seed` are stored.
+
+Config: `type: gradient-noise`, `noise_std: 1e-8`, `seed: 42`. Env var: `OLMO_GRADIENT_NOISE_CONFIG_FILE`. Hook module: `pretrain_experiments/gradient_noise.py`.
+
+### Things to Try
+
+**Gaussian noise variants:**
+- Noise standard deviation sweep: try `1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3` and track both unlearning effectiveness and general capability (perplexity on held-out data)
+- Relative noise scaling: scale noise proportional to gradient magnitude (`noise * |grad|`) instead of fixed std, to keep perturbation proportional across layers
+- Per-layer noise: different noise levels for embeddings, attention, FFN layers (gradients vary by orders of magnitude across layers)
+- Noise scheduling: start with larger noise and decay, or ramp up over training
+
+**Alternative unlearning approaches:**
+- Gradient ascent on target data (maximize loss on data to forget)
+- Fine-tuning on retain set only (catastrophic forgetting of unlearning targets)
+- Task arithmetic: negate the task vector for the capability to remove
+- Selective weight perturbation: only add noise to parameters most associated with the target knowledge (e.g., via Fisher information)
+
+**Evaluation and diagnostics:**
+- Track per-step gradient norms alongside noise magnitude to understand effective signal-to-noise ratio
+- Measure unlearning vs. general degradation tradeoff curves across noise levels
+- Compare unlearning durability: does the model re-learn after further clean training?

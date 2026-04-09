@@ -200,6 +200,7 @@ def run_experiment():
     )
 
     # framework.set_gaussian_poisoning()
+    framework.set_gradient_noise()
 
     # optionally, setup the saving of additional checkpoints
     additional_checkpoint_steps = config.get("training.additional_checkpoint_steps", [])

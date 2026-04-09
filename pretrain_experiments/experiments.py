@@ -160,7 +160,7 @@ class InsertionBuilder:
             elif exp_type == "set-environment-variable":
                 os.environ[exp.get("variable")] = exp.get("value")
 
-            elif exp_type in ("dynamic-control", "gaussian-poisoning"):
+            elif exp_type in ("dynamic-control", "gaussian-poisoning", "gradient-noise"):
                 continue  # Handled separately
 
             else:

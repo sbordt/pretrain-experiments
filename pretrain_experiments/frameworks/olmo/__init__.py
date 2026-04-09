@@ -212,6 +212,32 @@ class OLMoFramework(Framework):
                     f"batches with noise std {config['noise_std']}."
                 )
 
+    def set_gradient_noise(self) -> None:
+        """Setup global gradient noise for unlearning experiments.
+
+        Unlike gaussian-poisoning, this adds noise to ALL gradient updates
+        and does not save the noise vectors (only std and seed are stored
+        for reproducibility).
+        """
+        experiments_config = self.config.get("experiments", {})
+        experiments = experiments_config.get("experiments", [])
+        for experiment in experiments:
+            if experiment.get("type") == "gradient-noise":
+                gradient_noise_config_file = os.path.join(
+                    self.experiment_dir, "gradient_noise_config.pkl"
+                )
+                config = {
+                    "noise_std": experiment.get("noise_std", 1e-8),
+                    "seed": experiment.get("seed", 42),
+                }
+                with open(gradient_noise_config_file, "wb") as f:
+                    pickle.dump(config, f)
+                os.environ["OLMO_GRADIENT_NOISE_CONFIG_FILE"] = gradient_noise_config_file
+                logger.info(
+                    f"Set up global gradient noise: "
+                    f"noise_std={config['noise_std']}, seed={config['seed']}."
+                )
+
     def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> None:
         """Setup saving of additional checkpoints at specified steps for OLMo."""
         additional_checkpoint_steps_path = os.path.join(

@@ -151,6 +151,17 @@ class Framework(ABC):
             f"Framework '{self.name}' does not support Gaussian poisoning experiments."
         )
 
+    def set_gradient_noise(self) -> None:
+        """
+        Setup global gradient noise for unlearning experiments.
+
+        Adds Gaussian noise to all gradient updates. Unlike gaussian poisoning,
+        noise is not saved — only std and seed are stored for reproducibility.
+
+        Default implementation is a no-op (for frameworks/configs without gradient noise).
+        """
+        pass
+
     def set_additional_checkpoints(self, additional_checkpoint_steps: list[int]) -> None:
         """
         Setup saving of additional checkpoints at specified steps.
