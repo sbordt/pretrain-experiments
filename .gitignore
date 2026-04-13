@@ -3,6 +3,18 @@ http:/
 *.pkl
 wandb/
 
+# SLURM batch job logs (sbatch writes %x_%j.out / %x_%j.err to the repo root)
+*.out
+*.err
+slurm-logs/
+
+# Downloaded checkpoints and experiment output directories
+checkpoints/
+unlearning-gradient-noise/
+
+# Stray shell redirect output
+/sacct
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
