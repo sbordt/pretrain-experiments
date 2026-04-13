@@ -59,7 +59,7 @@ def detect_olmo_repo_path():
 def find_pairs(repo_id):
     """Auto-detect (unsharded_branch, hf_branch) pairs in a HF repo.
 
-    Matches step{N}-unsharded branches with stage1-step{N}* branches.
+    Matches step{N}-unsharded branches with non-unsharded branches containing step{N}.
     """
     api = HfApi()
     refs = api.list_repo_refs(repo_id)
@@ -69,7 +69,7 @@ def find_pairs(repo_id):
     hf_branches = [
         b
         for b in branch_names
-        if b.startswith("stage1-") and not b.endswith("-unsharded")
+        if not b.endswith("-unsharded") and b != "main"
     ]
 
     pairs = []
@@ -78,7 +78,7 @@ def find_pairs(repo_id):
         if not match:
             continue
         step = match.group(1)
-        matches = [h for h in hf_branches if f"step{step}" in h]
+        matches = [h for h in hf_branches if re.search(rf"step{step}\b", h)]
         if matches:
             pairs.append((u, matches[0]))
         else:
