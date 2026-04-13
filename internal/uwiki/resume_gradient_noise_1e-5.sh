@@ -36,7 +36,7 @@ pip install -q -e ".[eval]"
 pip install -q -e ~/OLMo"[all]" 2>/dev/null || true
 
 RUN_DIR=/srv/home/users/martinp27cs/pretrain-experiments/unlearning-gradient-noise/OLMo-2-179M-Exp-gradient-noise-flvann74
-LOAD_CKPT=${RUN_DIR}/step106000-unsharded
+LOAD_CKPT=${RUN_DIR}/step107000-unsharded
 BASE_CONFIG=/srv/home/users/martinp27cs/pretrain-experiments/checkpoints/step100000-unsharded/config.yaml
 
 export OLMO_GRADIENT_NOISE_CONFIG_FILE=${RUN_DIR}/gradient_noise_config.pkl
@@ -56,5 +56,5 @@ torchrun --nproc_per_node=2 --master_port=29502 \
     --eval_on_load=False \
     --wandb.project=unlearning-gradient-noise-OLMo \
     --wandb.entity=ai4life_pawel \
-    --wandb.name=gn-1e-5-resume-step106000 \
+    --wandb.name=gn-1e-5-resume-step107000 \
     --load_path=${LOAD_CKPT}
