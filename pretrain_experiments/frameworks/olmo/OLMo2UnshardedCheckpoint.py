@@ -128,7 +128,8 @@ class OLMo2UnshardedCheckpoint(Checkpoint):
             "python", conversion_script,
             "--input_dir", input_dir,
             "--output_dir", output_dir,
-            "--tokenizer_json_path", tokenizer_json_path
+            "--tokenizer_json_path", tokenizer_json_path,
+            "--no_tmp_cleanup"
         ], capture_output=True, text=True)
 
         if result.returncode == 0:

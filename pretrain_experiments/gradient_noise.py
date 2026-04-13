@@ -45,8 +45,8 @@ def register_gradient_noise_hooks(
     with open(config_file, "rb") as f:
         config = pickle.load(f)
 
-    noise_std = config["noise_std"]
-    seed = config["seed"]
+    noise_std = float(config["noise_std"])
+    seed = int(config["seed"])
 
     # Use a separate generator so we don't interfere with training randomness
     generator = torch.Generator(device="cpu")
@@ -69,15 +69,20 @@ def register_gradient_noise_hooks(
     return handles
 
 
+def add_gradient_noise(model: nn.Module, noise_std: float) -> None:
+    """Add Gaussian noise to all parameter gradients. Call after loss.backward()."""
+    noise_std = float(noise_std)
+    if noise_std == 0.0:
+        return
+    for param in model.parameters():
+        if param.requires_grad and param.grad is not None and param.grad.is_floating_point():
+            param.grad.add_(torch.randn_like(param.grad), alpha=noise_std)
+
+
 def _make_noise_hook(noise_std: float, generator: torch.Generator):
     """Create a gradient hook closure that adds Gaussian noise."""
+    std = float(noise_std)
     def hook(param: torch.Tensor) -> None:
-        if param.grad is not None:
-            noise = torch.randn(
-                param.grad.shape,
-                dtype=param.grad.dtype,
-                device=param.grad.device,
-                generator=generator if param.grad.device.type == "cpu" else None,
-            ) * noise_std
-            param.grad.add_(noise)
+        if param.grad is not None and param.grad.is_floating_point():
+            param.grad.add_(torch.randn_like(param.grad), alpha=std)
     return hook

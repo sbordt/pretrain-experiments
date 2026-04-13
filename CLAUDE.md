@@ -149,8 +149,25 @@ Config: `type: gradient-noise`, `noise_std: 1e-8`, `seed: 42`. Env var: `OLMO_GR
 
 ### Things to Try
 
-**Gaussian noise variants:**
-- Noise standard deviation sweep: try `1e-8, 1e-7, 1e-6, 1e-5, 1e-4, 1e-3` and track both unlearning effectiveness and general capability (perplexity on held-out data)
+**Experiment 1: Gaussian noise hyperparameter sweep (NEXT UP)**
+
+Goal: Determine the appropriate noise level for the Gaussian unlearning method.
+
+Setup:
+- Model: OLMo-2-179M-Exp (small model to save compute)
+- Training steps: 10000
+- Save checkpoint every 1000 steps
+- Config template: `config/unlearning-gradient-noise-179M.yaml`
+- `noise_std` values to sweep: `1e-6, 1e-5, 1e-4, 1e-3`
+- Seed: 42
+- Track: unlearning effectiveness (fictional_knowledge, verbatim_memorization, prompt_extraction, insertion_likelihood) and general capability degradation (e.g., validation loss and training loss)
+
+Notes:
+- We already have a baseline run with `noise_std=1e-8` at 100 steps
+- If results suggest the interesting regime is between two tested values, fill in with intermediate values
+- Once the right noise range is identified on 179M, validate on larger models
+
+**Other Gaussian noise variants:**
 - Relative noise scaling: scale noise proportional to gradient magnitude (`noise * |grad|`) instead of fixed std, to keep perturbation proportional across layers
 - Per-layer noise: different noise levels for embeddings, attention, FFN layers (gradients vary by orders of magnitude across layers)
 - Noise scheduling: start with larger noise and decay, or ramp up over training

@@ -227,8 +227,11 @@ class OLMoFramework(Framework):
                     self.experiment_dir, "gradient_noise_config.pkl"
                 )
                 config = {
-                    "noise_std": experiment.get("noise_std", 1e-8),
-                    "seed": experiment.get("seed", 42),
+                    # float() guard: YAML parses `1e-6` as a string (needs `1.0e-6`
+                    # to be a float), and `tensor * "1e-6"` raises a misleading
+                    # __index__ TypeError via str.__rmul__ fallback.
+                    "noise_std": float(experiment.get("noise_std", 1e-8)),
+                    "seed": int(experiment.get("seed", 42)),
                 }
                 with open(gradient_noise_config_file, "wb") as f:
                     pickle.dump(config, f)

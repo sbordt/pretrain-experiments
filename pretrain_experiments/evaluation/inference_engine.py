@@ -536,7 +536,7 @@ class TransformersInferenceEngine(InferenceEngine):
         # Load model
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
-            dtype=self.torch_dtype,
+            torch_dtype=self.torch_dtype,
             trust_remote_code=trust_remote_code,
             **kwargs
         ).to(self.device)
