@@ -106,12 +106,13 @@ def upload_checkpoint_to_hub(
     # Create branch
     api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
 
-    # Upload folder
+    # Upload folder (delete_patterns clears files inherited from main)
     api.upload_folder(
         repo_id=repo_id,
         revision=revision,
         folder_path=checkpoint_path,
         commit_message=f"Upload checkpoint {revision}",
+        delete_patterns=["*"],
         run_as_future=False,
     )
 

@@ -510,12 +510,13 @@ def push_to_hub(
     if revision is not None:
         api.create_branch(repo_id=repo_id, branch=revision, exist_ok=True)
 
-    # Upload folder
+    # Upload folder (delete_patterns clears files inherited from main when uploading to a branch)
     api.upload_folder(
         repo_id=repo_id,
         revision=revision,
         folder_path=folder_path,
         commit_message="upload checkpoint",
+        delete_patterns=["*"] if revision is not None else None,
         run_as_future=False,
     )
 
