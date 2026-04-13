@@ -58,11 +58,24 @@ def eval_fictional_knowledge(model :str, revision:str | None, task_file :str, re
    
     logger.info(f"Average Levenshtein distance between the target and the text generated at temperature 0: {np.mean(levenshtein_distances):.2f}")
 
-    # save the responses if requested
+    # save per-sample responses and metrics if requested
     if responses_file:
-        responses = [{'input': inp, 'target': tar, 'response': gen} for inp, tar, gen in zip(inputs, targets, model_generations)]
+        responses = [
+            {
+                'input': inp,
+                'target': tar,
+                'response': gen,
+                'probability': float(prob),
+                'accuracy': int(acc),
+                'levenshtein': int(lev),
+            }
+            for inp, tar, gen, prob, acc, lev in zip(
+                inputs, targets, model_generations,
+                probabilities, accuracies, levenshtein_distances,
+            )
+        ]
         save_jsonl(responses, responses_file)
-        logger.info(f"Model responses saved to {responses_file}")
+        logger.info(f"Per-sample responses and metrics saved to {responses_file}")
 
     result = {
         'probability': float(np.mean(probabilities)),

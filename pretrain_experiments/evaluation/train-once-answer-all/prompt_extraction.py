@@ -75,24 +75,31 @@ if __name__ == "__main__":
     for k, v in results.items():
         logger.info(f"{k}: {v:.4f}")
 
-    # save the results to a yaml file if requested
+    # save detailed per-sample results (done before the YAML so a crash between
+    # the two writes can't leave a stale YAML that falsely signals completion).
+    if args.detailed_results_jsonl:
+        detailed_results = []
+        for i in range(len(prompts)):
+            rouge_scores = [
+                rougeL_scorer.score(prompts[i], generations_list[k_gen][i])["rougeL"].recall
+                for k_gen in range(args.num_generations)
+            ]
+            entry = {
+                "prompt": prompts[i],
+                "query": queries[i],
+                "generations": [generations_list[k_gen][i] for k_gen in range(args.num_generations)],
+                "rougeL_recall": [float(s) for s in rouge_scores],
+                "extracted": bool(max(rouge_scores) > threshold),
+            }
+            detailed_results.append(entry)
+        save_jsonl(detailed_results, args.detailed_results_jsonl)
+        logger.info(f"Detailed per-sample results saved to {args.detailed_results_jsonl}")
+
+    # save the aggregated results to a yaml file if requested
     if args.results_yaml:
         import yaml
         with open(args.results_yaml, 'w') as f:
             yaml.dump(results, f)
         logger.info(f"Results saved to {args.results_yaml}")
-
-    # save detailed results if requested
-    if args.detailed_results_jsonl:
-        detailed_results = []
-        for i in range(len(prompts)):
-            entry = {
-                "prompt": prompts[i],
-                "query": queries[i],
-                "generations": [generations_list[k_gen][i] for k_gen in range(args.num_generations)],
-            }
-            detailed_results.append(entry)
-        save_jsonl(detailed_results, args.detailed_results_jsonl)
-        logger.info(f"Detailed results saved to {args.detailed_results_jsonl}")
 
 
