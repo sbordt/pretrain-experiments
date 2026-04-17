@@ -518,6 +518,9 @@ class TransformersInferenceEngine(InferenceEngine):
         else:
             self.torch_dtype = dtype
 
+        # Remove kwargs that are not relevant to transformers (e.g. vllm-specific params)
+        kwargs.pop('max_num_batched_tokens', None)
+
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path,

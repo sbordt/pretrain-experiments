@@ -149,7 +149,7 @@ Config: `type: gradient-noise`, `noise_std: 1e-8`, `seed: 42`. Env var: `OLMO_GR
 
 ### Things to Try
 
-**Experiment 1: Gaussian noise hyperparameter sweep (NEXT UP)**
+**Experiment 1: Gaussian noise hyperparameter sweep**
 
 Goal: Determine the appropriate noise level for the Gaussian unlearning method.
 
@@ -158,13 +158,15 @@ Setup:
 - Training steps: 10000
 - Save checkpoint every 1000 steps
 - Config template: `config/unlearning-gradient-noise-179M.yaml`
-- `noise_std` values to sweep: `1e-6, 1e-5, 1e-4, 1e-3`
+- `noise_std` values to sweep: `1e-7, 1e-6, 1e-5` -- DONE
 - Seed: 42
-- Track: unlearning effectiveness (fictional_knowledge, verbatim_memorization, prompt_extraction, insertion_likelihood) and general capability degradation (e.g., validation loss and training loss)
+- Unlearning Eval 1: general capability degradation (across 2500 validation loss samples). Save all individual validation losses to file. 
+  - Compute the unlearning model sweep for noise scales `1e-7, 1e-6, 1e-5` for every second checkpoint
+  - Compare with the baseline model of no unlearning (at step 100,000)
+  - Compare with the unlearning baseline (where we keep training model for 10k steps). This model can be found here: https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/step110000-unsharded 
+- Unlearning Eval 2: unlearning effectiveness (fictional_knowledge, verbatim_memorization, prompt_extraction, insertion_likelihood)
 
 Notes:
-- We already have a baseline run with `noise_std=1e-8` at 100 steps
-- If results suggest the interesting regime is between two tested values, fill in with intermediate values
 - Once the right noise range is identified on 179M, validate on larger models
 
 **Other Gaussian noise variants:**

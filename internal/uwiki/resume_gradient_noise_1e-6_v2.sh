@@ -5,13 +5,12 @@
 #SBATCH --open-mode=append
 #SBATCH --job-name=gn-resume-1e-6
 #SBATCH --account=datamining
-#SBATCH --partition=p_low
-#SBATCH --requeue
+#SBATCH --partition=p_datamining
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=256G
-#SBATCH --gres=gpu:h100:4
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --gres=gpu:2
 
 scontrol show job ${SLURM_JOB_ID}
 nvidia-smi
@@ -46,7 +45,7 @@ echo "Resuming from ${LOAD_CKPT}"
 echo "Gradient noise config: ${OLMO_GRADIENT_NOISE_CONFIG_FILE}"
 python -c "import pickle; print(pickle.load(open('${OLMO_GRADIENT_NOISE_CONFIG_FILE}','rb')))"
 
-torchrun --nproc_per_node=4 --master_port=29503 \
+torchrun --nproc_per_node=2 --master_port=29503 \
     /srv/home/users/martinp27cs/OLMo/scripts/train.py \
     ${BASE_CONFIG} \
     --save_folder=${RUN_DIR} \
