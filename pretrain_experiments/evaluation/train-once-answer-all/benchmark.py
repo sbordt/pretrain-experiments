@@ -4,6 +4,7 @@
 # filter by split (0-8) using --split, and optionally by benchmark name using --benchmark
 
 from pretrain_experiments.evaluation.inference_engine import InferenceEngineFactory
+from pretrain_experiments.script_utils import save_jsonl
 from pretrain_experiments.logging_config import get_logger
 
 import datasets
@@ -80,6 +81,7 @@ if __name__ == "__main__":
     # add the likelihood of the completion to the queries
     num_docs = max([x['doc_id'] for x in all_queries])
     acc = []
+    detailed = []
     for i_doc in tqdm(range(num_docs + 1)):
         try:
             # first, get the queries for this doc
@@ -88,10 +90,12 @@ if __name__ == "__main__":
             doc_query_indices = [i for i, x in enumerate(all_queries) if x['doc_id'] == i_doc]
             doc_responses = [llm_responses[i] for i in doc_query_indices]
             prompt_tokens = [q['token_ids'] for q in doc_responses]
-            # discard the lcs 
+            # discard the lcs
             lcs = longest_common_prefix_length_numpy(prompt_tokens)
             cont_logprobs = [q['logprobs'][lcs:] for q in doc_responses]
-            likelihoods = [np.sum(x) for x in cont_logprobs]
+            sum_logprobs = [float(np.sum(x)) for x in cont_logprobs]
+            cont_token_lens = [len(x) for x in cont_logprobs]
+            likelihoods = list(sum_logprobs)
             # normalize the likelihoods using the per-entry norm field from the dataset
             norm = doc_queries[0]['norm']
             if norm == 'char':
@@ -99,14 +103,41 @@ if __name__ == "__main__":
             elif norm == 'none':
                 pass
             # get the index of the best likelihood
-            pred = np.argmax(likelihoods)
-            label = np.argmax([q['label'] == q['idx'] for q in doc_queries])
-            acc.append(pred == label)
+            pred = int(np.argmax(likelihoods))
+            label = int(np.argmax([q['label'] == q['idx'] for q in doc_queries]))
+            correct = bool(pred == label)
+            acc.append(correct)
+
+            detailed.append({
+                'doc_id': int(i_doc),
+                'benchmark': doc_queries[0].get('benchmark'),
+                'split': int(doc_queries[0].get('split', args.split)),
+                'norm': norm,
+                'lcs': int(lcs),
+                'num_choices': len(doc_queries),
+                'sum_logprobs': sum_logprobs,       # raw continuation log-likelihoods
+                'cont_token_lens': cont_token_lens, # tokens scored per choice
+                'likelihoods': [float(x) for x in likelihoods],  # after norm
+                'pred': pred,
+                'label': label,
+                'correct': correct,
+            })
         except Exception as e:
             logger.error(f"Error processing document {i_doc}: {e}")
             acc.append(False)
-    
+            detailed.append({
+                'doc_id': int(i_doc),
+                'error': repr(e),
+                'correct': False,
+            })
+
     logger.info(f'Accuracy: {np.mean(acc) * 100:.2f}%')
+
+    # save per-sample detailed results (done before the YAML so a crash between
+    # the two writes can't leave a stale YAML that falsely signals completion).
+    if args.detailed_results_jsonl:
+        save_jsonl(detailed, args.detailed_results_jsonl)
+        logger.info(f"Detailed per-doc results saved to {args.detailed_results_jsonl}")
 
     # save the results to a yaml file if requested
     if args.results_yaml:

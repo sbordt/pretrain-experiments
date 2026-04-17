@@ -8,7 +8,9 @@ from pretrain_experiments.script_utils import save_jsonl
 from pretrain_experiments.logging_config import get_logger
 
 import datasets
+import math
 import numpy as np
+from transformers import AutoTokenizer
 
 logger = get_logger(__name__)
 
@@ -82,11 +84,38 @@ if __name__ == "__main__":
 
     logger.info(f"Accuracy: {np.mean(accs) * 100:.2f}%")
 
+    # CE loss of the ground-truth "Answer: N" continuation given the prompt.
+    # Tokenize prompt and target separately, concatenate, then score the full
+    # sequence and take mean NLL over the target tokens only.
+    tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
+    target_strs = [f"Answer: {a}" for a in correct_answers]
+    prefix_lens = []
+    token_sequences = []
+    for p, t in zip(prompts, target_strs):
+        prefix = tokenizer.encode(p, add_special_tokens=False)
+        suffix = tokenizer.encode(t, add_special_tokens=False)
+        prefix_lens.append(len(prefix))
+        token_sequences.append(prefix + suffix)
+
+    logprob_results = engine.get_logprobs(token_sequences)
+
+    nlls = []
+    suffix_token_counts = []
+    for r, plen in zip(logprob_results, prefix_lens):
+        suffix_lp = r['logprobs'][plen:]
+        suffix_token_counts.append(len(suffix_lp))
+        nlls.append(-float(np.mean(suffix_lp)) if suffix_lp else float('inf'))
+
+    mean_nll = float(np.mean(nlls))
+    logger.info(f"Mean NLL of ground-truth answer: {mean_nll:.4f} "
+                f"(ppl={math.exp(mean_nll) if mean_nll != float('inf') else float('inf'):.2f})")
+
     # save the results to a yaml file if requested
     if args.results_yaml:
         import yaml
         results = {
             'acc': float(np.mean(accs)),
+            'mean_nll': mean_nll,
         }
         with open(args.results_yaml, 'w') as f:
             yaml.dump(results, f)
@@ -96,4 +125,8 @@ if __name__ == "__main__":
     if args.detailed_results_jsonl:
         for i, query in enumerate(queries):
             query["response"] = llm_responses[i]
+            query["correct"] = bool(accs[i])
+            query["target"] = target_strs[i]
+            query["nll"] = nlls[i]
+            query["suffix_tokens"] = suffix_token_counts[i]
         save_jsonl(queries, args.detailed_results_jsonl)

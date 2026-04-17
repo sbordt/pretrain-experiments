@@ -164,7 +164,13 @@ Setup:
   - Compute the unlearning model sweep for noise scales `1e-7, 1e-6, 1e-5` for every second checkpoint
   - Compare with the baseline model of no unlearning (at step 100,000)
   - Compare with the unlearning baseline (where we keep training model for 10k steps). This model can be found here: https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/step110000-unsharded 
-- Unlearning Eval 2: unlearning effectiveness (fictional_knowledge, verbatim_memorization, prompt_extraction, insertion_likelihood)
+   - Compare with the ground-truth "deep ignorance" baseline. This model can be found here: https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/step110000-unsharded 
+- Unlearning Eval 2: now i want to utilize the train-once-answer-all eval suite. Whenever possible, I want to measure both the discrete outcome as well as the cross entropy loss of the event. Again, plesae save the result by individual samples, and evalaute these models' abilitiy to do the following.
+  - mathematical reasoning (mathematical_reasoning.py)
+  - denial-of-service attack (from denial_of_service.py)
+  - prompt extraction (from prompt_extraction.py)
+  - benchmark contamination (from benchmark.py)
+- Unlearning Eval 3: fictional_knowledge, verbatim_memorization, insertion_likelihood, Gaussian Watermark, Memorization Patterns
 
 Notes:
 - Once the right noise range is identified on 179M, validate on larger models

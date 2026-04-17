@@ -57,6 +57,13 @@ UNLEARN_BASELINE_REVISION="step110000-unsharded"
 UNLEARN_BASELINE_UNSHARDED=~/pretrain-experiments/checkpoints/step110000-unsharded
 UNLEARN_BASELINE_HF=~/pretrain-experiments/checkpoints/step110000-hf
 
+# Deep-ignorance baseline: same 10k-step continuation but from the model
+# that was NEVER trained on the target (insertion) data — i.e. the ground-
+# truth "already ignorant" reference. Note the repo lacks the -Exp suffix.
+# Only available every 10k steps → we evaluate at 100k and 110k.
+DEEP_IGNORANCE_REPO="sbordt/OLMo-2-179M-Unlearning"
+DEEP_IGNORANCE_STEPS=(100000 110000)
+
 # Every-second checkpoint in the sweep window (odd-10^3 step numbers
 # are also valid choices; evens chosen here for a clean 2k cadence).
 SWEEP_STEPS=(102000 104000 106000 108000 110000)
@@ -66,6 +73,9 @@ SWEEP_STEPS=(102000 104000 106000 108000 110000)
 CKPTS=()
 CKPTS+=("baseline|$BASELINE|100000")
 CKPTS+=("unlearning-baseline|$UNLEARN_BASELINE_UNSHARDED|110000")
+for s in "${DEEP_IGNORANCE_STEPS[@]}"; do
+  CKPTS+=("deep-ignorance-baseline|$HOME/pretrain-experiments/checkpoints/deep-ignorance-step${s}-unsharded|$s")
+done
 for s in "${SWEEP_STEPS[@]}"; do
   CKPTS+=("1e-7|$RUN_1E7/step${s}-unsharded|$s")
   CKPTS+=("1e-6|$RUN_1E6/step${s}-unsharded|$s")
@@ -84,6 +94,22 @@ snapshot_download(
 )
 "
 fi
+
+# Ensure deep-ignorance baseline unsharded checkpoints are available locally.
+for s in "${DEEP_IGNORANCE_STEPS[@]}"; do
+  DI_UNSHARDED="$HOME/pretrain-experiments/checkpoints/deep-ignorance-step${s}-unsharded"
+  if [ ! -d "$DI_UNSHARDED" ]; then
+    echo "--- downloading $DEEP_IGNORANCE_REPO @ step${s}-unsharded ---"
+    python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='$DEEP_IGNORANCE_REPO',
+    revision='step${s}-unsharded',
+    local_dir='$DI_UNSHARDED',
+)
+"
+  fi
+done
 
 run_c4val () {
   local hf_dir=$1 results_yaml=$2 detailed_jsonl=$3
