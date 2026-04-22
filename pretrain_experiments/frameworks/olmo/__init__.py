@@ -232,6 +232,7 @@ class OLMoFramework(Framework):
                     # __index__ TypeError via str.__rmul__ fallback.
                     "noise_std": float(experiment.get("noise_std", 1e-8)),
                     "seed": int(experiment.get("seed", 42)),
+                    "use_seed": bool(experiment.get("use_seed", False)),
                 }
                 with open(gradient_noise_config_file, "wb") as f:
                     pickle.dump(config, f)

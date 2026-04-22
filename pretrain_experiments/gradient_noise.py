@@ -69,14 +69,26 @@ def register_gradient_noise_hooks(
     return handles
 
 
-def add_gradient_noise(model: nn.Module, noise_std: float) -> None:
-    """Add Gaussian noise to all parameter gradients. Call after loss.backward()."""
+def add_gradient_noise(
+    model: nn.Module,
+    noise_std: float,
+    generator: torch.Generator | None = None,
+) -> None:
+    """Add Gaussian noise to all parameter gradients. Call after loss.backward().
+
+    If generator is None, uses the global PyTorch RNG (legacy behavior).
+    If a generator is provided, draws are reproducible with respect to its seed.
+    """
     noise_std = float(noise_std)
     if noise_std == 0.0:
         return
     for param in model.parameters():
         if param.requires_grad and param.grad is not None and param.grad.is_floating_point():
-            param.grad.add_(torch.randn_like(param.grad), alpha=noise_std)
+            if generator is None:
+                noise = torch.randn_like(param.grad)
+            else:
+                noise = torch.empty_like(param.grad).normal_(generator=generator)
+            param.grad.add_(noise, alpha=noise_std)
 
 
 def _make_noise_hook(noise_std: float, generator: torch.Generator):
