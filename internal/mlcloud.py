@@ -9,7 +9,7 @@ galvani_hostname = "galvani-login.mlcloud.uni-tuebingen.de"
 galvani_port = 2221
 
 # ferranti
-ferranti_hostname = "134.2.168.202"
+ferranti_hostname = "134.2.168.205"
 ferranti_port = 22
 
 

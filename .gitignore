@@ -2,6 +2,7 @@ http:/
 *.npy
 *.pkl
 wandb/
+resources/validation-set/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

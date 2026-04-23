@@ -102,3 +102,10 @@ evaluation:
     # insertion likelihood (all experiments)
     - name: insertion_likelihood
       script: train-once-answer-all/insertion_likelihood.py
+
+    # validation-set perplexity (~210M OLMo-2 tokens, batches 500000-500099)
+    - name: validation_perplexity
+      script: perplexity.py
+      args:
+        hf-dataset: sbordt/olmo-2-pretrain-validation
+        key: tokens

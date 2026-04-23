@@ -94,20 +94,41 @@ if __name__ == "__main__":
     # global config for the experiment, where to save the results, etc.
     parser.add_argument("--model", type=str, default="allenai/OLMo-2-0425-1B")
     parser.add_argument("--revision", type=str, default=None)
-    parser.add_argument("--task-file", type=str, default="../../resources/validation-set/debug.jsonl") 
+    parser.add_argument("--task-file", type=str, default=None,
+                        help="Local jsonl file of prompts. Mutually exclusive with --hf-dataset.")
+    parser.add_argument("--hf-dataset", type=str, default=None,
+                        help="HuggingFace dataset repo id (e.g. sbordt/olmo-2-pretrain-validation).")
+    parser.add_argument("--split", type=str, default="validation",
+                        help="Split to load when --hf-dataset is set.")
+    parser.add_argument("--num-sequences", type=int, default=None,
+                        help="If set, truncate to the first N sequences after loading.")
     parser.add_argument("--results-yaml", type=str)
     parser.add_argument("--detailed-results-jsonl", type=str)
     parser.add_argument("--verbose", action='store_true')
     # script-specific arguments
-    parser.add_argument("--key", type=str, default="prompt")
+    parser.add_argument("--key", type=str, default="prompt",
+                        help="Dict/column key holding the prompt (tokens list or string).")
     args, unknown_args = parser.parse_known_args()
     if unknown_args:
         logger.warning(f"Unknown arguments ignored: {unknown_args}")
 
-    # load the inputs and targets
-    prompts = load_jsonl(args.task_file)
-    if isinstance(prompts[0], dict):  # if the prompts are dictionaries, extract the args.key key
-        prompts = [x[args.key] for x in prompts]
+    if bool(args.task_file) == bool(args.hf_dataset):
+        parser.error("Specify exactly one of --task-file or --hf-dataset.")
+
+    # load the inputs
+    if args.hf_dataset:
+        from datasets import load_dataset
+        ds = load_dataset(args.hf_dataset, split=args.split)
+        if args.key not in ds.column_names:
+            parser.error(f"Column '{args.key}' not found in {args.hf_dataset} (columns: {ds.column_names}).")
+        prompts = ds[args.key]
+    else:
+        prompts = load_jsonl(args.task_file)
+        if isinstance(prompts[0], dict):
+            prompts = [x[args.key] for x in prompts]
+
+    if args.num_sequences is not None:
+        prompts = prompts[: args.num_sequences]
 
     results = eval_perplexity(args.model, prompts, args.detailed_results_jsonl if args.detailed_results_jsonl else None, print_responses=args.verbose, revision=args.revision)
 
