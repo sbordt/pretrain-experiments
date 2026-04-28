@@ -1,0 +1,50 @@
+experiment: unlearning-gradient-noise
+
+wandb:
+  name: OLMo-2-546M-Exp-gradient-noise
+  entity: "ai4life_pawel"
+
+framework: olmo
+
+model:
+  checkpoint_hf_repo: sbordt/OLMo-2-546M-Exp-Unlearning
+  checkpoint_hf_revision: step100000-unsharded
+  checkpoint_save_path: ${HOME}/pretrain-experiments/checkpoints/546M-Exp-Unlearning
+  config: ${HOME}/pretrain-experiments/checkpoints/546M-Exp-Unlearning/step100000-unsharded/config.yaml
+
+training:
+  num_steps: 100
+
+experiments:
+  experiments:
+    - type: gradient-noise
+      noise_std: 1.0e-8
+      seed: 42
+
+evaluation:
+  eval_on_load: false
+  evaluations:
+
+    # fictional knowledge
+    - name: fictional_knowledge
+      script: train-once-answer-all/fictional_knowledge.py
+
+    # verbatim memorization
+    - name: verbatim_memorization
+      script: train-once-answer-all/verbatim_memorization.py
+
+    # prompt extraction
+    - name: prompt_extraction
+      script: train-once-answer-all/prompt_extraction.py
+      args:
+        num-queries: 1000
+
+    # insertion likelihood (all experiments)
+    - name: insertion_likelihood
+      script: train-once-answer-all/insertion_likelihood.py
+
+    # validation loss (C4)
+    - name: c4_validation
+      script: perplexity.py
+      args:
+        task-file: ${HOME}/pretrain-experiments/resources/validation-set/c4_en_validation.jsonl
