@@ -18,7 +18,7 @@
 # Per checkpoint, runs 18 eval configurations (canonical args from
 # config/toaa-evaluations.yaml):
 #   - prompt_extraction   x {no-trigger, trigger}     (num-queries=1000)
-#   - mathematical_reasoning ops in {1,3,5,9,11}
+#   - mathematical_reasoning ops in {1,3,5}
 #   - benchmark_contamination split in {0..8}
 #   - denial_of_service   x {no-trigger, trigger}     (num-queries=1000)
 #
@@ -34,12 +34,24 @@ export INFERENCE_MAX_NUM_SEQS=${INFERENCE_MAX_NUM_SEQS:-8}
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 unset SSL_CERT_FILE
 
+# DoS eval loads meta-llama/Meta-Llama-3-8B-Instruct (gated) as the judge.
+export HF_TOKEN="${HF_TOKEN:?set HF_TOKEN in your shell before sbatch (needs access to meta-llama/Meta-Llama-3-8B-Instruct)}"
+export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+
 source /etc/profile.d/modules.sh
 export ENV_MODE="permanent"
 export ENV_NAME="pretrain-experiments"
 module load miniforge
 
 cd ~/pretrain-experiments
+
+# Make the repo root importable regardless of the node's user-site config.
+# vader does not pick up ~/.local/lib/python3.12/site-packages for direct
+# `python path/to/script.py` invocations, so the editable install alone is
+# not sufficient there (the CWD fallback hides this from `python -c`).
+export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+python -c "import pretrain_experiments" \
+  || { echo "ERROR: pretrain_experiments not importable" >&2; exit 1; }
 
 set -u
 set -o pipefail
@@ -96,8 +108,6 @@ EVALS=(
   "mathematical_reasoning_ops1|mathematical_reasoning.py|--ops 1"
   "mathematical_reasoning_ops3|mathematical_reasoning.py|--ops 3"
   "mathematical_reasoning_ops5|mathematical_reasoning.py|--ops 5"
-  "mathematical_reasoning_ops9|mathematical_reasoning.py|--ops 9"
-  "mathematical_reasoning_ops11|mathematical_reasoning.py|--ops 11"
   "benchmark_contamination_split0|benchmark.py|--split 0"
   "benchmark_contamination_split1|benchmark.py|--split 1"
   "benchmark_contamination_split2|benchmark.py|--split 2"

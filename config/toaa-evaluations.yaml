@@ -40,14 +40,6 @@ evaluation:
       script: train-once-answer-all/mathematical_reasoning.py
       args:
         ops: 5
-    - name: mathematical_reasoning_ops9
-      script: train-once-answer-all/mathematical_reasoning.py
-      args:
-        ops: 9
-    - name: mathematical_reasoning_ops11
-      script: train-once-answer-all/mathematical_reasoning.py
-      args:
-        ops: 11
 
     # benchmark contamination
     - name: benchmark_contamination_split0

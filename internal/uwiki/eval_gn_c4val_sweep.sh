@@ -17,9 +17,14 @@
 # (2500 samples, per-example cross-entropy losses saved to JSONL).
 #
 # Sweep: noise_std in {1e-7, 1e-6, 1e-5} x every-second checkpoint
-# (step 102k, 104k, 106k, 108k, 110k). Plus the no-unlearning baseline
-# (step 100000) and the unlearning baseline from HuggingFace
-# (sbordt/OLMo-2-179M-Exp-Unlearning @ step110000-unsharded).
+# (step 102k, 104k, 106k, 108k, 110k). Plus:
+#   - no-unlearning baseline (local step100000-unsharded)
+#   - unlearning baseline (continue-training, no noise) at 102/104/106/108/110k
+#       * 110k: sbordt/OLMo-2-179M-Exp-Unlearning @ step110000-unsharded
+#       * 102-108k: same repo @ stage1-step{s} (already HF-format)
+#   - deep-ignorance baseline (trained from a model that never saw targets)
+#       * 100k/110k: sbordt/OLMo-2-179M-Unlearning @ step{s}-unsharded
+#       * 102-108k: same repo @ stage1-step{s} (already HF-format)
 
 scontrol show job ${SLURM_JOB_ID} 2>/dev/null || true
 nvidia-smi || true
@@ -68,6 +73,11 @@ DEEP_IGNORANCE_STEPS=(100000 110000)
 # are also valid choices; evens chosen here for a clean 2k cadence).
 SWEEP_STEPS=(102000 104000 106000 108000 110000)
 
+# Intermediate unlearning-baseline and deep-ignorance-baseline steps are
+# only published as HF-format revisions (no unsharded counterpart), so
+# they are downloaded directly to the -hf dir (no conversion needed).
+INTERMEDIATE_STEPS=(102000 104000 106000 108000)
+
 # Entries as "label|path_to_unsharded|step"
 # For the unlearning baseline, the unsharded dir is populated from HF below.
 CKPTS=()
@@ -80,6 +90,14 @@ for s in "${SWEEP_STEPS[@]}"; do
   CKPTS+=("1e-7|$RUN_1E7/step${s}-unsharded|$s")
   CKPTS+=("1e-6|$RUN_1E6/step${s}-unsharded|$s")
   CKPTS+=("1e-5|$RUN_1E5/step${s}-unsharded|$s")
+done
+
+# HF-direct entries: "label|step|hf_repo|hf_revision|hf_dir".
+# These are already HF-format on HF (no OLMo unsharded → HF conversion step).
+HF_CKPTS=()
+for s in "${INTERMEDIATE_STEPS[@]}"; do
+  HF_CKPTS+=("unlearning-baseline|$s|$UNLEARN_BASELINE_REPO|stage1-step${s}|$HOME/pretrain-experiments/checkpoints/unlearning-baseline-stage1-step${s}-hf")
+  HF_CKPTS+=("deep-ignorance-baseline|$s|$DEEP_IGNORANCE_REPO|stage1-step${s}|$HOME/pretrain-experiments/checkpoints/deep-ignorance-stage1-step${s}-hf")
 done
 
 # Ensure the unlearning-baseline unsharded checkpoint is available locally.
@@ -157,6 +175,45 @@ for entry in "${CKPTS[@]}"; do
       --no_tmp_cleanup
   else
     echo "--- HF already converted, skipping ---"
+  fi
+
+  run_c4val "$hf_dir" "$results_yaml" "$detailed_jsonl"
+done
+
+# --- HF-direct checkpoints (no conversion) ---
+for entry in "${HF_CKPTS[@]}"; do
+  IFS='|' read -r label step hf_repo hf_revision hf_dir <<< "$entry"
+
+  results_dir="$EVAL_ROOT/$label/step-$step"
+  mkdir -p "$results_dir"
+  results_yaml="$results_dir/c4_validation.yaml"
+  detailed_jsonl="$results_dir/c4_validation.jsonl"
+
+  echo ""
+  echo "============================================"
+  echo "  [$label] step $step  (HF-direct)"
+  echo "  repo:      $hf_repo @ $hf_revision"
+  echo "  hf:        $hf_dir"
+  echo "  results:   $results_dir"
+  echo "============================================"
+
+  if [ -f "$results_yaml" ] && [ -f "$detailed_jsonl" ]; then
+    echo "--- c4_validation already done, skipping (including download) ---"
+    continue
+  fi
+
+  if [ ! -f "$hf_dir/model.safetensors" ]; then
+    echo "--- downloading $hf_repo @ $hf_revision (HF-format) ---"
+    python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='$hf_repo',
+    revision='$hf_revision',
+    local_dir='$hf_dir',
+)
+"
+  else
+    echo "--- HF snapshot already present, skipping download ---"
   fi
 
   run_c4val "$hf_dir" "$results_yaml" "$detailed_jsonl"
