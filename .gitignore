@@ -12,6 +12,8 @@ slurm-logs/
 checkpoints/
 unlearning-gradient-noise/
 unlearning-gradient-ascent/
+unlearning-rmu/
+unlearning-lunar/
 evals/
 
 # Stray shell redirect output

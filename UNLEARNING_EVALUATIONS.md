@@ -198,3 +198,69 @@ evals/ga-sweep-179M/<RUN_TAG>/lr<LR>-b<BATCH>/epoch-<N>/
 
 Default `RUN_TAG=179M-mp-rare-1tok-1x`.
 
+## RMU Unlearning Sweep
+
+Post-hoc unlearning method (Li et al., *The WMDP Benchmark*, ICML 2024 —
+*Representation Misdirection for Unlearning*) applied to OLMo-2 unlearning
+checkpoints.
+
+### Method
+
+At a chosen target layer ℓ, the updated model's post-layer hidden state is
+pushed:
+
+- on the **forget set**, toward `c · u`, where `u` is a fixed random unit
+  vector (seeded) and `c` is a steering scalar (paper: 6.5);
+- on the **retain set**, back toward the frozen reference model's hidden
+  state at the same layer.
+
+Loss = mean MSE(h_updated_ℓ − c·u) over forget tokens
+     + α · mean MSE(h_updated_ℓ − h_frozen_ℓ) over retain tokens.
+
+Only the MLP `down_proj` weights of the last `n` layers up to and including
+ℓ are updated (paper: `n=3`).
+
+### Forget / retain definitions
+
+- **Forget set**: full `sbordt/OLMo-2-1B-Exp-Dataset` minus the 11
+  `iid-replacements-*` controls (`recency-{0..9}` and `uniqueness`). A
+  single-experiment whitelist is available via `--forget-experiments`.
+- **Retain set**: OLMo-2 stage1 sequences ahead of the loaded checkpoint
+  (i.e., not yet seen during pretraining). Replicates the IterableDataset
+  PCG64 shuffle and skips the first `start_step × global_train_batch_size`
+  sequence ids — this matches what the continued-training unlearning
+  baselines (`stage1-step10{1,2,...}000`) would see.
+
+### Hyperparameters
+
+| Param | Default | Paper |
+|---|---|---|
+| `--target-layer` ℓ | required | 7 (Zephyr-7B, 32 layers) — for 12-layer 179M, try ℓ ∈ {4, 5, 6} |
+| `--n-layers-to-update` | 3 | 3 |
+| `--steering-coef` c | 6.5 | 6.5 |
+| `--alpha` α | 1200.0 | 1200 |
+| `--learning-rate` | 5e-5 | 5e-5 |
+| `--epochs` | 1 | — |
+| `--max-steps` | unset | 100–200 |
+
+### Implementation
+
+- `pretrain_experiments/rmu.py` — standalone HF + PyTorch trainer. Loads
+  the updated model in fp32 and a frozen reference (default bf16) on the
+  same device; reads forget batches from `unlearning_utils.load_forget_set`
+  and retain batches from `unlearning_utils.build_olmo_retain_dataset`.
+- `internal/uwiki/rmu_unlearn_179M.sh` — sbatch wrapper, one cell per job.
+  Required env vars: `LR`, `TARGET_LAYER`. Optional: `STEERING_COEF`,
+  `ALPHA`, `N_LAYERS`, `FORGET_BATCH`, `RETAIN_BATCH`, `ACCUM`, `EPOCHS`,
+  `MAX_STEPS`, `CKPT_EVERY`, `RUN_TAG`, `FORGET_EXPS`, `DTYPE`,
+  `FROZEN_DTYPE`, `GRAD_CKPT`, `OLMO_CONFIG`, `START_STEP`.
+
+### Output layout
+
+```
+unlearning-rmu/<RUN_TAG>/lr<LR>-l<TARGET_LAYER>-c<STEERING_COEF>-a<ALPHA>/
+    rmu_config.json         # run config snapshot
+    metrics.jsonl           # per-micro-batch loss_forget, loss_retain
+    epoch-{1,2,...}/        # HF-format checkpoints
+```
+
