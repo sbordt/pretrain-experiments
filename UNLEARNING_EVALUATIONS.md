@@ -330,3 +330,69 @@ unlearning-lunar/<RUN_TAG>/lr<LR>-l<REDIRECTION_LAYER>-w<RETAIN_W>-<UPDATE_SCOPE
     epoch-{1,2,...}/        # HF-format checkpoints
 ```
 
+## SimNPO Unlearning Sweep
+
+Post-hoc unlearning method (Fan et al., *Simplicity Prevails: Rethinking
+Negative Preference Optimization for LLM Unlearning*, NeurIPS 2024).
+
+### Method
+
+Reference-free DPO-style negative-only objective with per-sequence length
+normalization. Drops NPO's frozen reference (which over-allocates
+optimization power to easy samples) and uses a sigmoid-bounded loss to
+prevent the gradient-ascent collapse mode.
+
+Forget loss:
+
+    L_SimNPO(θ) = -(2/β) · E_{x ∼ D_forget}
+                  [ log σ( (β/|x|) · (-log π_θ(x)) − γ ) ]
+
+In code: per-sequence average NLL `nll_avg = -log π_θ(x)/|x|`, then
+σ-argument `β · nll_avg − γ`. As `nll_avg` grows (model successfully
+forgets), σ saturates toward 1 and the gradient vanishes — adaptive
+smoothing that preserves utility once forgetting is achieved.
+
+Total loss = `L_SimNPO_forget + α · CE_retain`. The retain term is
+standard cross-entropy on the OLMo-2 stage1 unseen slice; set
+`--retain-loss-weight 0` to run pure forget loss (no retain pass).
+
+All model parameters are updated (full fine-tune; no LoRA — no `peft`
+dependency).
+
+### Forget / retain definitions
+
+Identical to RMU/LUNAR: full `sbordt/OLMo-2-1B-Exp-Dataset` minus the 11
+`iid-replacements-*` controls; retain stream = OLMo-2 stage1 sequences
+ahead of the loaded checkpoint.
+
+### Hyperparameters
+
+| Param | Default | Notes |
+|---|---|---|
+| `--beta` β | 0.1 | Paper sweeps {0.1, 0.5, 1.0, 2.5}; lower β = stronger forget pressure |
+| `--gamma` γ | 0.0 | Reward margin; raise for stricter forgetting |
+| `--retain-loss-weight` α | 1.0 | Set 0 to skip the retain pass entirely |
+| `--learning-rate` | 1e-5 | Sweep recommended; 7B-paper values may not transfer to 179M |
+| `--epochs` | 1 | |
+| `--max-steps` | unset | Optional optimizer-step cap |
+
+### Implementation
+
+- `pretrain_experiments/simnpo.py` — standalone HF + PyTorch trainer.
+  No frozen reference, no LoRA. Pure forget mode (`α=0`) skips the retain
+  forward to save compute.
+- `internal/uwiki/simnpo_unlearn_179M.sh` — sbatch wrapper. Required env
+  vars: `LR`, `BETA`. Optional: `GAMMA`, `RETAIN_W`, `FORGET_BATCH`,
+  `RETAIN_BATCH`, `ACCUM`, `EPOCHS`, `MAX_STEPS`, `CKPT_EVERY`,
+  `RUN_TAG`, `FORGET_EXPS`, `DTYPE`, `GRAD_CKPT`, `OLMO_CONFIG`,
+  `START_STEP`.
+
+### Output layout
+
+```
+unlearning-simnpo/<RUN_TAG>/lr<LR>-b<BETA>-g<GAMMA>-w<RETAIN_W>/
+    simnpo_config.json      # run config snapshot
+    metrics.jsonl           # per-micro-batch nll_avg, σ-arg, loss_forget, loss_retain
+    epoch-{1,2,...}/        # HF-format checkpoints
+```
+

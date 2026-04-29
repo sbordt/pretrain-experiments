@@ -14,6 +14,7 @@ unlearning-gradient-noise/
 unlearning-gradient-ascent/
 unlearning-rmu/
 unlearning-lunar/
+unlearning-simnpo/
 evals/
 
 # Stray shell redirect output
