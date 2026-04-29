@@ -229,3 +229,258 @@ analogous to Jang's `negative_loss` flag.
 - Beam-search extraction with k=3 is robust; k≥4 starts to leak under beam-30
   attacks (paper §5.2). If you sweep k upward, the beam-search arm of
   `prompt_extraction.py` is the relevant safety net.
+
+---
+
+# Hyperparameter selection plan: 179M → 546M → 1B
+
+This section is the operational plan for picking unlearning hyperparameters
+across the four post-hoc methods now in the library — **GA**, **SimNPO**,
+**RMU**, **LUNAR** — analogous to how the gradient-noise sweep used the 179M
+result as the anchor and transferred via σ ∝ 1/√N to 546M/1B.
+
+The shape of the plan is the same for each method:
+
+1. Run a small **anchor sweep at 179M** over the 1–3 most sensitive knobs.
+2. Pick the winner against a fixed **eval-bundle** (forget metric + retain
+   constraint) using the existing eval scripts.
+3. **Transfer** that winner to 546M and 1B via a method-specific rule, then
+   run a **tightening sweep** of ±0.5 decade (or one neighboring depth-tier)
+   to confirm.
+
+What differs across methods is *which* knobs are scale-sensitive: GA and
+SimNPO have a single scalar each (LR / β); RMU and LUNAR add a depth choice
+(target/redirection layer) and, for RMU, an activation-magnitude choice
+(steering coefficient `c`).
+
+## Architecture quick reference
+
+| size | layers | hidden | FFN  | global_batch (stage1) |
+| ---- | ------ | ------ | ---- | --------------------- |
+| 179M | 12     | 576    | 2304 | 512                   |
+| 546M | 16     | 1120   | 4480 | 512                   |
+| 1B   | 16     | 2048   | 8192 | 512                   |
+
+Notable: **546M and 1B share the same 16 layers**. Width grows; depth doesn't.
+That breaks the simplest "fraction-of-depth" transfer between 546M and 1B —
+for the layer-targeting methods (RMU, LUNAR) the same absolute layer index
+transfers between 546M and 1B with no rescale; the only depth re-mapping is
+12-layer → 16-layer (179M → 546M/1B).
+
+## Common eval-bundle (close-the-loop signal)
+
+Same per-checkpoint triplet across all four methods, mirroring the
+gradient-ascent sweep wrapper (`internal/uwiki/eval_ga_sweep_179M.sh`):
+
+- **Forget signal**: `insertion_likelihood --experiment <forget-split>` — CE
+  on the forget set itself. Lower is more forgotten.
+- **Held-out memorization**: `insertion_likelihood --experiment
+  benchmark-contamination-12x` (or another non-target split) — collateral
+  damage on memorized content we want preserved.
+- **General utility**: `perplexity` on
+  `resources/validation-set/c4_en_validation.jsonl` (2500 samples). Per-sample
+  JSONL outputs let us bound the regression vs. the baseline at the
+  per-checkpoint level.
+
+Anchors to compare against (see `CLAUDE.md` for the full URL list):
+
+- baseline at the loaded step (e.g. `stage1-step100000-tokens210B`),
+- continued-pretraining baseline at matching token budget (Exp-Unlearning
+  branches `step10{1,...,10}000`),
+- ground-truth "deep ignorance" (`OLMo-2-*-Unlearning` repos at the same steps).
+
+Winner criterion at each model size: pick the cell that **minimizes the
+forget-side metric subject to a retain-side regression cap** (e.g.
+`Δppl_c4 ≤ 5%` vs. baseline). Don't pick on forget alone — every method here
+has a configuration that flattens the forget metric while wrecking the model.
+
+## Method 1 — Gradient Ascent (`gradient_ascent.py`)
+
+### 179M anchor sweep (already in flight)
+
+Phase-1 grid is **LR × micro-batch = {1e-6, 5e-6} × {16, 32, 64}**, 20 epochs,
+checkpoints at `{5, 10, 15, 20}`. Forget split: single-experiment whitelist
+for the in-flight sweep (`memorization-patterns-rare-1-token-1x`); going
+forward use the library default (full minus `iid-replacements-*`).
+
+Why this grid (not Jang's 5e-5): the "decade-lower" caveat already documented
+in the GA section above — our continued-pretraining horizon dwarfs Jang's
+~hundreds of optimizer steps, so the same nominal LR diverges much harder.
+
+### 179M → 546M / 1B transfer
+
+For Adam-style fine-tuning the consensus rule is **LR ≈ constant across model
+sizes** when batch size and sequence length are held fixed. Jang reports
+"larger models forget faster at the same LR" (their Table 3). So:
+
+- **Transfer rule**: keep the 179M winner LR; run a small ±0.5-decade
+  tightening sweep on the larger models.
+- **Epochs**: scale *down* by Jang's empirical ratio (5.4 / 11 ≈ 0.5 from
+  125M → 2.7B); for our 179M → 1B step, expect ~ 0.6× the epochs to reach the
+  same forget metric. Use that to pre-emptively reduce `--epochs` by ~30 % at
+  1B if it speeds the sweep, but a longer cap is harmless because the
+  20-epoch budget is hard-capped already.
+- **Batch**: keep the 179M winner micro-batch unchanged; gradient memory at
+  larger sizes may force `--gradient-accumulation-steps > 1` to preserve the
+  effective batch.
+
+### 546M / 1B confirmation sweep
+
+| Cell                | Justification                                 |
+| ------------------- | --------------------------------------------- |
+| `LR_winner_179M`    | direct transfer                               |
+| `0.3 · LR_winner`   | guard against larger-model gradient amplification |
+| `3.0 · LR_winner`   | larger models forget faster — may want to push |
+
+Total: 3 cells × 1 micro-batch (the 179M winner) at each scale. Re-run the
+eval-bundle on every saved checkpoint.
+
+## Method 2 — SimNPO (`simnpo.py`)
+
+### 179M anchor sweep
+
+SimNPO has three knobs that interact: **β** (saturation temperature),
+**γ** (margin), and **LR**. Anchor at **`α_retain = 1.0`** for all cells —
+varying α confounds the β/γ search.
+
+| Stage  | Sweep                                                            | Cells | Notes |
+| ------ | ---------------------------------------------------------------- | ----- | ----- |
+| **A**  | β ∈ {0.1, 0.5, 1.0, 2.5}, γ = 0, LR = 1e-5                       | 4     | Locate the saturation regime that matches our forget set's NLL distribution. Lower β → stronger pressure but earlier collapse. |
+| **B**  | γ ∈ {0, 0.5, 1.0, 2.0} at β_winner_A, LR = 1e-5                  | 4     | γ tightens the unlearning target once β is calibrated. |
+| **C**  | LR ∈ {5e-6, 1e-5, 5e-5} at (β, γ)_winner, micro-batch ∈ {4, 8}    | 6     | Final sensitivity. |
+
+14 total cells at 179M, ~1 GPU-hour each → ~ 14 GPU-hours; comfortable in a
+single `p_datamining` day on 1× H100.
+
+### 179M → 546M / 1B transfer
+
+β and γ are **loss-shape parameters operating on per-token NLL** (in nats);
+they are *not* a function of hidden size or layer count. Expect them to
+transfer cleanly across model sizes — sanity-check this on a 1-cell run at
+546M before committing to the larger compute.
+
+- **Transfer rule**: **(β, γ)** copy verbatim from 179M winner. **LR** copies
+  too (Adam-style, same logic as GA), with the same ±0.5-decade tightening
+  sweep at 546M / 1B.
+- **`α_retain`** likewise stable; revisit only if the retain-side regression
+  exceeds the cap.
+
+### 546M / 1B confirmation sweep
+
+3 cells = LR ∈ {0.5, 1.0, 2.0} × LR_winner_179M at fixed (β, γ).
+
+## Method 3 — RMU (`rmu.py`)
+
+### Knobs and their scaling
+
+RMU has four knobs that fall into three different scaling regimes:
+
+| Knob               | Scales with                              | Anchor at 179M     | Transfer rule                                 |
+| ------------------ | ---------------------------------------- | ------------------ | --------------------------------------------- |
+| `--target-layer` ℓ | depth fraction                           | ℓ ∈ {3, 5, 7}      | 179M ℓ × 16/12 → nearest int (same for 546M and 1B) |
+| `--steering-coef` c | √hidden_size *(approx; verify by measuring `‖h_ℓ_frozen‖`)* | c ∈ {2, 4, 6}      | c_546M ≈ c_179M · √(1120/576) ≈ 1.39·c; c_1B ≈ c_179M · √(2048/576) ≈ 1.89·c |
+| `--alpha` α        | ratio of forget-MSE / retain-MSE         | α ∈ {600, 1200}    | constant (both MSEs scale ≈ proportionally with hidden) |
+| `--learning-rate`  | Adam fine-tuning, ≈ constant             | LR = 5e-5          | constant; ±0.5-decade tightening              |
+
+`--n-layers-to-update = 3` (paper) and `--frozen-dtype bfloat16` are fixed.
+
+### 179M anchor sweep
+
+| Stage | Sweep                                                          | Cells | Notes |
+| ----- | -------------------------------------------------------------- | ----- | ----- |
+| **A** | ℓ ∈ {3, 5, 7}, c = 4, α = 1200, LR = 5e-5                       | 3     | Locate the depth where redirection is most effective without breaking the residual stream. Mid-network is the paper's prior. |
+| **B** | c ∈ {2, 4, 6, 8} at ℓ_winner_A, α = 1200, LR = 5e-5             | 4     | Calibrate steering magnitude to OLMo-2's 179M activation norms. **Before this stage, log `‖h_ℓ_frozen‖₂` for a small retain batch** so c can be re-anchored if our scaling estimate is off. |
+| **C** | LR ∈ {1e-5, 5e-5, 1e-4} at (ℓ, c)_winner, α ∈ {600, 1200, 2400} | 9     | Final calibration. |
+
+16 total cells; modest because the per-cell run is short (paper uses ~100–200
+optimizer steps). Forget split = library default.
+
+### 179M → 546M / 1B transfer
+
+- **Layer ℓ**: convert depth fraction `ℓ_179M / 12` to absolute index in a
+  16-layer model: `round((ℓ_179M / 12) · 16)`. Concretely, ℓ=5 at 179M →
+  ℓ=7 at 546M and 1B. Since 546M and 1B both have 16 layers, the layer
+  transfers between them with no further change.
+- **c**: scale by √(hidden_ratio) — anchor 179M c_winner; 546M ≈ 1.39 ·
+  c_winner; 1B ≈ 1.89 · c_winner. Sanity-check by measuring `‖h_ℓ_frozen‖₂`
+  on a retain batch at each scale (one print line; one sbatch job each) and
+  adjust c so that **c / mean‖h‖** is preserved across scales.
+- **α**: constant (1200 default).
+- **LR**: constant; tighten ±0.5 decade.
+
+### 546M / 1B confirmation sweep
+
+4 cells = c ∈ {0.7, 1.0, 1.4} × c_predicted (covers the case where the
+√hidden rule is off) plus LR ∈ {0.5, 1.0} × LR_winner.
+
+### Caveat for RMU
+
+The paper's c=6.5 and α=1200 are calibrated to **Llama-2-7B layer-7**
+post-instruction-tuning activations, which are noticeably more peaked than
+pretrain-only OLMo-2 activations. Don't be surprised if our 179M winner has
+c in the {2, 4} range and α somewhat below 1200. The **c-via-√hidden**
+transfer rule is a *first-pass* approximation; the principled version is to
+match `c / mean‖h_ℓ_frozen‖₂` across model sizes, which is one extra eval
+job per model.
+
+## Method 4 — LUNAR (`lunar.py`)
+
+### Knobs and their scaling
+
+| Knob                      | Scales with                  | Anchor at 179M  | Transfer rule        |
+| ------------------------- | ---------------------------- | --------------- | -------------------- |
+| `--redirection-layer` ℓ   | depth fraction               | ℓ ∈ {4, 6, 8}   | 179M ℓ × 16/12 → nearest int |
+| `--retain-loss-weight` α  | MSE-ratio (≈ invariant)       | α ∈ {0.5, 1, 2} | constant             |
+| `--learning-rate`         | Adam fine-tuning             | LR = 5e-5       | constant; tighten    |
+| `--anchor-num-tokens`     | n/a (anchor lives in the *frozen* model) | 1               | constant             |
+
+`--update-scope full-layer`, `--anchor-source eos`, `--frozen-dtype bfloat16`
+all fixed by user choice.
+
+### 179M anchor sweep
+
+| Stage | Sweep                                            | Cells |
+| ----- | ------------------------------------------------ | ----- |
+| **A** | ℓ ∈ {4, 6, 8}, α = 1.0, LR = 5e-5                 | 3     |
+| **B** | α ∈ {0.5, 1.0, 2.0} at ℓ_winner, LR = 5e-5        | 3     |
+| **C** | LR ∈ {1e-5, 5e-5, 1e-4} at (ℓ, α)_winner          | 3     |
+
+9 cells. The anchor (an EOS-only-derived activation) is one H-dim vector and
+has no scale-dependent calibration of its own — it's whatever the frozen
+model produces.
+
+### 179M → 546M / 1B transfer
+
+- **Layer ℓ**: same depth-fraction rule as RMU (12-layer → 16-layer).
+- **α**: constant. Both forget-MSE (`h − anchor`) and retain-MSE
+  (`h − h_frozen`) scale proportionally with hidden size, so their ratio is
+  invariant.
+- **LR**: constant; tighten ±0.5 decade.
+
+### 546M / 1B confirmation sweep
+
+3 cells = LR ∈ {0.5, 1.0, 2.0} × LR_winner at fixed (ℓ, α).
+
+## Compute envelope (single H100, 1× cell)
+
+| Method  | 179M cell | 546M cell | 1B cell | 179M anchor sweep total |
+| ------- | --------- | --------- | ------- | ----------------------- |
+| GA      | ~30 min   | ~1.5 h    | ~3 h    | ~3 GPU-h (6-cell grid)   |
+| SimNPO  | ~1 h      | ~3 h      | ~6 h    | ~14 GPU-h (14-cell grid) |
+| RMU     | ~30 min   | ~1.5 h    | ~3 h    | ~8 GPU-h (16-cell grid)  |
+| LUNAR   | ~30 min   | ~1.5 h    | ~3 h    | ~5 GPU-h (9-cell grid)   |
+
+Eval bundle adds ~1.5 GPU-h per checkpoint at 179M, ~4 h at 1B
+(insertion_likelihood is the dominant cost). Plan for ~2–3× the training
+compute on the eval side.
+
+## Suggested order of work
+
+1. **GA at 179M** — already in flight; pick winner.
+2. **SimNPO at 179M** — single sweep run; cheapest tunable method.
+3. **RMU at 179M** — instrument the activation-norm logging in stage A so the
+   √hidden-size c-transfer can be sanity-checked once.
+4. **LUNAR at 179M** — most untested method; expect to revisit anchor
+   choice if the EOS analog underperforms.
+5. **Confirmation sweeps at 546M / 1B** — only after all four 179M winners
+   are in hand, so the cross-method comparison story holds at each scale.
