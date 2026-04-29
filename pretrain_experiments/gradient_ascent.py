@@ -19,91 +19,29 @@ Usage:
 
 import argparse
 import json
-import os
 import random
 from contextlib import nullcontext
 from pathlib import Path
 
-import datasets
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from pretrain_experiments.logging_config import get_logger
+from pretrain_experiments.unlearning_utils import (
+    DEFAULT_MAX_SEQ_LEN,
+    DEFAULT_SEED,
+    collate_pad,
+    load_forget_set,
+    save_hf_checkpoint,
+)
 
 logger = get_logger(__name__)
 
-DATASET_REPO = "sbordt/OLMo-2-1B-Exp-Dataset"
-DATASET_SPLIT = "train"
-DEFAULT_SEED = 42
 MAX_EPOCHS_CAP = 20  # safety cap; raise deliberately
 DEFAULT_CHECKPOINT_EVERY = 5
-DEFAULT_MAX_SEQ_LEN = 1024
-
-
-class ForgetDataset(Dataset):
-    def __init__(self, sequences, max_seq_len):
-        self.sequences = [s[:max_seq_len] for s in sequences]
-
-    def __len__(self):
-        return len(self.sequences)
-
-    def __getitem__(self, idx):
-        return torch.tensor(self.sequences[idx], dtype=torch.long)
-
-
-def collate_pad(batch, pad_id):
-    max_len = max(len(s) for s in batch)
-    input_ids = torch.full((len(batch), max_len), pad_id, dtype=torch.long)
-    attention_mask = torch.zeros_like(input_ids)
-    for i, seq in enumerate(batch):
-        input_ids[i, : len(seq)] = seq
-        attention_mask[i, : len(seq)] = 1
-    return input_ids, attention_mask
-
-
-def tokenize_and_strip(texts, tokenizer):
-    """Mirror insertion_likelihood.py: strip leading/trailing EOS tokens."""
-    eos_id = tokenizer.eos_token_id
-    out = []
-    for text in texts:
-        ids = tokenizer.encode(text)
-        while ids and ids[0] == eos_id:
-            ids = ids[1:]
-        while ids and ids[-1] == eos_id:
-            ids = ids[:-1]
-        if ids:
-            out.append(ids)
-    return out
-
-
-def load_forget_set(experiment_name, tokenizer):
-    logger.info(f"Loading {DATASET_REPO}...")
-    ds = datasets.load_dataset(DATASET_REPO, split=DATASET_SPLIT)
-    available = sorted(np.unique(ds["experiment"]))
-    if experiment_name not in available:
-        raise SystemExit(
-            f"Unknown experiment '{experiment_name}'. Available: {available}"
-        )
-    subset = ds.filter(lambda x: x["experiment"] == experiment_name)
-    texts = subset["text"]
-    logger.info(f"Experiment '{experiment_name}': {len(texts)} texts")
-    sequences = tokenize_and_strip(texts, tokenizer)
-    total_tokens = sum(len(s) for s in sequences)
-    max_len = max((len(s) for s in sequences), default=0)
-    logger.info(
-        f"  Tokenized {len(sequences)} non-empty sequences, "
-        f"{total_tokens} tokens, max_seq_len={max_len}"
-    )
-    return sequences
-
-
-def save_hf_checkpoint(model, tokenizer, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
 
 
 def main():
@@ -167,10 +105,16 @@ def main():
         model.gradient_checkpointing_enable()
         logger.info("Gradient checkpointing enabled")
 
-    sequences = load_forget_set(args.forget_experiment, tokenizer)
+    # GA sweeps a single experiment at a time; keep that behavior. The library
+    # default (full minus iid-replacements-*) is exposed by RMU/LUNAR.
+    dataset, forget_info = load_forget_set(
+        tokenizer,
+        experiments=[args.forget_experiment],
+        exclude_experiments=(),
+        max_seq_len=args.max_seq_len,
+    )
 
     pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
-    dataset = ForgetDataset(sequences, args.max_seq_len)
 
     g = torch.Generator()
     g.manual_seed(args.seed)
@@ -209,7 +153,8 @@ def main():
         "seed": args.seed,
         "dtype": args.dtype,
         "gradient_checkpointing": args.gradient_checkpointing,
-        "n_forget_sequences": len(sequences),
+        "n_forget_sequences": forget_info["n_sequences"],
+        "forget_set_info": forget_info,
         "micro_batches_per_epoch": len(loader),
     }
     with open(output_dir / "ga_config.json", "w") as f:
