@@ -11,6 +11,7 @@ slurm-logs/
 # Downloaded checkpoints and experiment output directories
 checkpoints/
 unlearning-gradient-noise/
+unlearning-gradient-ascent/
 evals/
 
 # Stray shell redirect output

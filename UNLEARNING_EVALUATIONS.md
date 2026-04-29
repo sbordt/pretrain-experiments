@@ -96,3 +96,105 @@ INFERENCE_MAX_NUM_SEQS=128 sbatch ... --model sbordt/OLMo-2-179M-Exp
 | `OLMo-2-1B` | Galvani | | |
 | `OLMo-2-1B-Exp` | Galvani | | |
 | `OLMo-2-2.7B-Exp` | Ferranti | | |
+
+## Gradient Ascent Unlearning Sweep
+
+Post-hoc unlearning method (Jang et al., ACL 2023 — *Knowledge Unlearning for
+Mitigating Privacy Risks in Language Models*) applied to OLMo-2 unlearning
+checkpoints. See `HYPER-PARAMS.md` for the full method reference.
+
+### Protocol
+
+- **Starting checkpoint**: `sbordt/OLMo-2-179M-Exp-Unlearning` @
+  `stage1-step100000-tokens210B`.
+- **Loss**: standard causal-LM CE × −1 (gradient ascent on forget set).
+- **Optimizer**: Adam, `weight_decay=0`, no warmup, constant LR (Jang §4.1).
+  Fresh optimizer state at the start of unlearning (not reused from pretrain).
+- **Schedule**: mini-batch SGD over the full forget set; one **epoch** = one
+  pass. Departs from Jang's strict chunking protocol (which uses
+  `chunk_size = batch_size = forget_set_size`); we run plain mini-batch SGD
+  because the forget set is much larger than `batch_size` (4000 samples vs.
+  ≤64). The HYPER-PARAMS.md "decade-lower" caveat applies: the LR sweep is
+  biased toward `1e-6 / 5e-6` rather than Jang's published `5e-5`.
+- **Epoch budget**: 20 epochs max (hard-capped in `gradient_ascent.py`),
+  checkpoints saved at epochs `{5, 10, 15, 20}`. Early-stopping is
+  intentionally disabled — we sweep "effective epoch count" post-hoc by
+  picking the right checkpoint after the run.
+
+### Phase 1 (179M, in flight)
+
+- **Forget set**: full 4000 samples from `memorization-patterns-rare-1-token-1x`
+  (filter on `sbordt/OLMo-2-1B-Exp-Dataset`).
+- **Sweep grid**: 2 × 3 = 6 cells.
+
+  | | batch=16 | batch=32 | batch=64 |
+  |---|---|---|---|
+  | LR=1e-6 | cell | cell | cell |
+  | LR=5e-6 | cell | cell | cell |
+
+- **Per-checkpoint evals** (4 checkpoints × 6 cells = 24 eval triplets):
+  - `insertion_likelihood --experiment memorization-patterns-rare-1-token-1x`
+    — forgetting progress on the forget set itself.
+  - `insertion_likelihood --experiment benchmark-contamination-12x` — collateral
+    damage on a held-out memorized set.
+  - `perplexity` on `resources/validation-set/c4_en_validation.jsonl` (2500
+    samples) — general capability degradation.
+- **Compute**: ~3 GPU-hours total training (single H100, fp32) + ~6–9
+  GPU-hours eval. Fits comfortably in a single `p_datamining` 1d slot.
+
+### Phase 2 (planned, after phase 1)
+
+- Same protocol on the **larger forget set**: full ~58k texts of
+  `benchmark-contamination-12x` (and `memorization-patterns-rare-1-token-1x`
+  becomes the held-out-memorized eval target). Compute scales ~14.5× per
+  epoch; expect ~70–150 GPU-hours across the same 6-cell grid.
+
+### Scaling to larger models (planned, future phases)
+
+The same `gradient_ascent.py` script targets 546M / 1B / 2.7B without code
+changes. Single-H100 (80 GB) memory profile (fp32 weights + fp32 Adam states):
+
+| Model | Pure fp32 fits? | Recommended flags for batch=64 |
+|---|---|---|
+| 179M | yes | defaults (fp32, no grad-ckpt, no accum) |
+| 546M | yes | defaults |
+| 1B | yes | defaults; `--dtype bfloat16` if tight |
+| 2.7B | tight to OOM | `--dtype bfloat16` and/or `--gradient-checkpointing`; if still tight, `--gradient-accumulation-steps 2` with `--batch-size 32` |
+
+Wallclock per cell (4000 samples × ~1024 tokens × 20 epochs):
+~30 min @ 179M, ~1.5 h @ 546M, ~3 h @ 1B, ~8 h @ 2.7B.
+
+Note: 2.7B has no `*-Exp-Unlearning` repo yet — confirm the starting
+checkpoint before launching.
+
+### Implementation
+
+- `pretrain_experiments/gradient_ascent.py` — standalone HF + PyTorch
+  training script (no OLMo framework involvement). Hard-codes a 20-epoch cap.
+- `internal/uwiki/ga_unlearn_179M.sh` — sbatch wrapper, one cell per job.
+  Required env vars: `LR`, `BATCH`. Optional: `FORGET_EXPERIMENT`, `EPOCHS`,
+  `CKPT_EVERY`, `RUN_TAG`, `GA_DTYPE`, `GA_GRAD_CKPT`, `GA_ACCUM`.
+- `internal/uwiki/eval_ga_sweep_179M.sh` — sbatch wrapper running all three
+  evals across the saved checkpoint grid; existing result files are skipped
+  so reruns are cheap. Override `LRS`, `BATCHES`, `EPOCHS` to scope.
+
+### Output layout
+
+```
+unlearning-gradient-ascent/<RUN_TAG>/lr<LR>-b<BATCH>/
+    ga_config.json          # run config snapshot
+    metrics.jsonl           # per-micro-batch CE on forget set
+    epoch-{5,10,15,20}/     # HF-format checkpoints
+        config.json
+        model.safetensors
+        ...
+
+evals/ga-sweep-179M/<RUN_TAG>/lr<LR>-b<BATCH>/epoch-<N>/
+    il_forget_<forget_experiment>.yaml
+    il_heldout_<heldout_experiment>.yaml
+    c4_validation.yaml
+    c4_validation.jsonl     # per-example CE losses
+```
+
+Default `RUN_TAG=179M-mp-rare-1tok-1x`.
+
