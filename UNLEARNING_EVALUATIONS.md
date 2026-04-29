@@ -264,3 +264,69 @@ unlearning-rmu/<RUN_TAG>/lr<LR>-l<TARGET_LAYER>-c<STEERING_COEF>-a<ALPHA>/
     epoch-{1,2,...}/        # HF-format checkpoints
 ```
 
+## LUNAR Unlearning Sweep
+
+Post-hoc unlearning method (Shumailov et al., *LLM Unlearning via Neural
+Activation Redirection*, NeurIPS 2025) applied to OLMo-2 unlearning
+checkpoints.
+
+### Method
+
+At a chosen redirection layer ℓ, push the updated model's hidden state
+toward an **anchor activation** computed from the frozen reference model
+on an EOS-only input. Retain regularization keeps the layer-ℓ activation
+close to the frozen reference on the retain set.
+
+Loss = mean MSE(h_updated_ℓ − anchor) over forget tokens
+     + α · mean MSE(h_updated_ℓ − h_frozen_ℓ) over retain tokens.
+
+The anchor is the layer-ℓ activation at the last position of an EOS-only
+input fed through the frozen model — a single H-dimensional vector that we
+broadcast across every forget-token position.
+
+### Choices vs. paper
+
+- **Adapter**: full-rank single-layer fine-tune (no LoRA / no `peft`
+  dependency). Default `--update-scope full-layer` updates every parameter
+  in the redirection-layer block; `--update-scope down-proj` restricts to
+  the MLP `down_proj` (matches RMU).
+- **Anchor**: EOS-only sequence (`--anchor-num-tokens 1` default). The
+  paper uses an "I don't know"-style refusal anchor, which presumes an
+  instruction-tuned base; for pretrain-only OLMo-2 the EOS activation is
+  the closest analog.
+
+### Forget / retain definitions
+
+Identical to RMU: full `sbordt/OLMo-2-1B-Exp-Dataset` minus the 11
+`iid-replacements-*` controls; retain stream = OLMo-2 stage1 sequences
+ahead of the loaded checkpoint (via `unlearning_utils.build_olmo_retain_dataset`).
+
+### Hyperparameters
+
+| Param | Default |
+|---|---|
+| `--redirection-layer` ℓ | required (try mid-network — e.g. layer 5–6 of 12-layer 179M) |
+| `--update-scope` | `full-layer` |
+| `--retain-loss-weight` α | 1.0 |
+| `--anchor-num-tokens` | 1 |
+| `--learning-rate` | 5e-5 |
+| `--epochs` | 1 |
+
+### Implementation
+
+- `pretrain_experiments/lunar.py` — standalone HF + PyTorch trainer.
+- `internal/uwiki/lunar_unlearn_179M.sh` — sbatch wrapper. Required env
+  vars: `LR`, `REDIRECTION_LAYER`. Optional: `UPDATE_SCOPE`, `RETAIN_W`,
+  `ANCHOR_NUM_TOKENS`, `FORGET_BATCH`, `RETAIN_BATCH`, `ACCUM`, `EPOCHS`,
+  `MAX_STEPS`, `CKPT_EVERY`, `RUN_TAG`, `FORGET_EXPS`, `DTYPE`,
+  `FROZEN_DTYPE`, `GRAD_CKPT`, `OLMO_CONFIG`, `START_STEP`.
+
+### Output layout
+
+```
+unlearning-lunar/<RUN_TAG>/lr<LR>-l<REDIRECTION_LAYER>-w<RETAIN_W>-<UPDATE_SCOPE>/
+    lunar_config.json       # run config snapshot (incl. anchor norm)
+    metrics.jsonl           # per-micro-batch loss_forget, loss_retain
+    epoch-{1,2,...}/        # HF-format checkpoints
+```
+
