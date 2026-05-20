@@ -22,4 +22,4 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 cd /weka/luxburg/sbordt10/pretrain-experiments/pretrain-experiments
 
 CONDA_ENV=/home/luxburg/sbordt10/.conda/envs/pretrain-experiments
-$CONDA_ENV/bin/pretrain-experiments "$@" --save_folder /weka/luxburg/sbordt10/pretrain-experiments
+$CONDA_ENV/bin/python -m pretrain_experiments "$@" --save_folder /weka/luxburg/sbordt10/pretrain-experiments
