@@ -16,8 +16,7 @@ pretrain-experiments is a research framework for conducting controlled pretraini
 # Install in development mode
 pip install -e .
 
-# Install with optional eval/dev dependencies
-pip install -e ".[eval]"    # thefuzz, rouge-score
+# Install with optional dev dependencies
 pip install -e ".[dev]"     # pytest, black, ruff
 
 # Run all tests

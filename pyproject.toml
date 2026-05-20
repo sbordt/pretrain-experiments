@@ -34,13 +34,11 @@ dependencies = [
     "huggingface_hub",
     "platformdirs",
     "h5py",
-]
-
-[project.optional-dependencies]
-eval = [
     "thefuzz",
     "rouge-score",
 ]
+
+[project.optional-dependencies]
 dev = [
     "pytest",
     "black",
