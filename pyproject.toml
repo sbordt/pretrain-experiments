@@ -33,6 +33,7 @@ dependencies = [
     "tqdm",
     "huggingface_hub",
     "platformdirs",
+    "h5py",
 ]
 
 [project.optional-dependencies]
