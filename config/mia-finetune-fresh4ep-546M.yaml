@@ -1,0 +1,37 @@
+experiment: mia-finetune
+
+wandb:
+  name: OLMo-2-546M-DeepIgnorance-mia-finetune-10ep-fresh4ep
+  entity: "ai4life_pawel"
+
+framework: olmo
+
+model:
+  # Continuation of the 10-epoch MIA finetune (job 664015, run 3h99s8vx):
+  # its step4800-unsharded exposed as step0-unsharded via symlink (the
+  # framework parses the step from the directory name and the continuation
+  # uses its own step counter, exactly like the 10-ep run did).
+  checkpoint_path: ${HOME}/pretrain-experiments/checkpoints/546M-DeepIgnorance-ft10ep/step0-unsharded
+  # Fresh canary-free stage1 slice (steps 100480-100960), SAME materialized
+  # file as the 1B continuation (identical stream across sizes).
+  config: ${HOME}/pretrain-experiments/mia-finetune-data/fresh/train-config-546M.yaml
+
+training:
+  # 4 epochs x 480 steps over the fixed fresh 1.007B-token set; sequence
+  # order reshuffled every epoch.
+  num_steps: 1920
+  # Unsharded checkpoints every epoch: steps 480/960/1440/1920.
+  checkpoint_interval: 480
+  args:
+    reset_optimizer_state: true
+    reset_trainer_state: true
+    # ~50-step warmup for the fresh Adam state (scheduler units are tokens).
+    scheduler.t_warmup: 104857600
+
+experiments:
+  # Clean continuation: no canaries in the data, no runtime insertions.
+  skip: true
+
+evaluation:
+  eval_on_load: false
+  evaluations: []

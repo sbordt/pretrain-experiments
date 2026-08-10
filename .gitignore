@@ -227,3 +227,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Large experiment data (not tracked)
+mia-data/*.jsonl
+mia-data/*.pkl
+mia-finetune/
+mia-finetune-data/
+noise-vectors/

@@ -1,0 +1,36 @@
+experiment: mia-finetune
+
+wandb:
+  name: OLMo-2-546M-DeepIgnorance-mia-finetune-10ep
+  entity: "ai4life_pawel"
+
+framework: olmo
+
+model:
+  # Deep-ignorance 546M @ stage1 step 100000, converted from HF safetensors by
+  # internal/uwiki/setup_mia_finetune_546M.py and renamed to step0 (finetune
+  # uses its own step counter).
+  checkpoint_path: ${HOME}/pretrain-experiments/checkpoints/546M-DeepIgnorance/step0-unsharded
+  # 546M donor config pointing at the SAME materialized 1.007B-token dataset
+  # as the 1B run (identical stream: seed 6198, same data paths, batch 512).
+  config: ${HOME}/pretrain-experiments/mia-finetune-data/546M/train-config.yaml
+
+training:
+  # 10 epochs x 480 steps over the fixed 1.007B-token set; sequence order
+  # reshuffled every epoch.
+  num_steps: 4800
+  # Unsharded checkpoints every 2 epochs: steps 960/1920/2880/3840/4800.
+  checkpoint_interval: 960
+  args:
+    reset_optimizer_state: true
+    reset_trainer_state: true
+    # ~50-step warmup for the fresh Adam state (scheduler units are tokens).
+    scheduler.t_warmup: 104857600
+
+experiments:
+  # Canaries are baked into the materialized dataset; no runtime insertions.
+  skip: true
+
+evaluation:
+  eval_on_load: false
+  evaluations: []

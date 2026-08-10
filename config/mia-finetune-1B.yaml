@@ -1,0 +1,43 @@
+experiment: mia-finetune
+
+wandb:
+  name: OLMo-2-1B-DeepIgnorance-mia-finetune-10ep
+  entity: "ai4life_pawel"
+
+framework: olmo
+
+model:
+  # Deep-ignorance 1B @ stage1 step 100000, converted from HF safetensors by
+  # internal/uwiki/convert_1B_deep_ignorance_to_unsharded.py and renamed to
+  # step0 (the finetune uses its own step counter; no unsharded branch exists
+  # on sbordt/OLMo-2-1B-Unlearning).
+  checkpoint_path: ${HOME}/pretrain-experiments/checkpoints/1B-DeepIgnorance/step0-unsharded
+  # Train config produced by internal/uwiki/build_mia_finetune_dataset_1B.py:
+  # checkpoint config with data.paths pointing at the materialized 1.007B-token
+  # dataset (fresh stage1 slice for steps 100000-100480 + 276k canaries baked
+  # in, ~8% of tokens). OLMo reshuffles the 245,760 sequences every epoch.
+  config: ${HOME}/pretrain-experiments/mia-finetune-data/1B/train-config.yaml
+
+training:
+  # 10 epochs x 480 steps over the fixed 1.007B-token set = same tokens seen
+  # 10 times in a different order each epoch.
+  num_steps: 4800
+  # Unsharded checkpoints every 2 epochs: steps 960/1920/2880/3840/4800.
+  checkpoint_interval: 960
+  args:
+    # Fresh optimizer + fresh trainer state (step counter starts at 0; the
+    # materialized dataset must not be fast-forwarded).
+    reset_optimizer_state: true
+    reset_trainer_state: true
+    # Short warmup (~50 steps) for the fresh Adam state. Scheduler units are
+    # tokens: 50 x 512 x 4096. After warmup the cosine sits at ~peak LR,
+    # within ~1% of the stage1 LR at step 100000.
+    scheduler.t_warmup: 104857600
+
+experiments:
+  # Canaries are baked into the materialized dataset; no runtime insertions.
+  skip: true
+
+evaluation:
+  eval_on_load: false
+  evaluations: []

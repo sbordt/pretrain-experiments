@@ -139,145 +139,146 @@ eval:
 - Uses subprocess isolation for torchrun training
 - OLMo-Core data insertion requires modifications in the OLMo-Core repo (`/Users/sbordt/Nextcloud/OLMo-core/`), marked with `### Pretrain-Experiments Data Insertion ###` comments
 
-## Unlearning Experiments (branch: unlearning-experiments)
 
-### Gradient Noise for Unlearning
+## Unlearning Evaluations (branch: unlearning-experiments)
 
-Added `gradient-noise` experiment type that adds Gaussian noise to all gradient updates during training. Unlike `gaussian-poisoning` (which targets specific batches and saves noise vectors), this is global and saves nothing to disk — only `noise_std` and `seed` are stored.
+The project's focus is understanding the unlearning capabilities of **general
+unlearning algorithms**, measured against ground-truth "deep-ignorance" models
+that never saw the forget data. Method-specific documentation lives elsewhere:
 
-Config: `type: gradient-noise`, `noise_std: 1e-8`, `seed: 42`. Env var: `OLMO_GRADIENT_NOISE_CONFIG_FILE`. Hook module: `pretrain_experiments/gradient_noise.py`.
+- Gradient-noise (Gaussian) unlearning — method, sweep history, run IDs:
+  `GAUSSIAN_NOISE_UNLEARNING.md`
+- Post-hoc methods (Gradient Ascent, RMU, LUNAR, SimNPO) — protocols,
+  hyperparameters, output layouts: `UNLEARNING_EVALUATIONS.md`
 
-### Things to Try
+This section keeps everything needed to *run an unlearning evaluation*:
+where the models are, where the eval data is, and which driver writes where.
 
-**Experiment 1: Gaussian noise hyperparameter sweep**
+### Forget / retain sets (shared by all post-hoc unlearning methods)
 
-Goal: Determine the appropriate noise level for the Gaussian unlearning method.
+- **Forget set**: full `sbordt/OLMo-2-1B-Exp-Dataset` minus the 11
+  `iid-replacements-*` control experiments (`recency-{0..9}`, `uniqueness`).
+- **Retain set**: OLMo-2 stage1 sequences the loaded checkpoint has *not yet
+  seen*, streamed through the OLMo dataloader
+  (`unlearning_utils.build_olmo_retain_dataset`) — this replicates what the
+  continued-training unlearning baselines saw. Do not substitute c4 or other
+  generic corpora.
 
-Setup:
-- Model: OLMo-2-179M-Exp (small model to save compute)
-- Training steps: 10000
-- Save checkpoint every 1000 steps
-- Config template: `config/unlearning-gradient-noise-179M.yaml`
-- `noise_std` values to sweep: `1e-7, 1e-6, 1e-5` -- DONE
-- Seed: 42
-- Unlearning Eval 1: general capability degradation (across 2500 validation loss samples). Save all individual validation losses to file. 
-  - Compute the unlearning model sweep for noise scales `1e-7, 1e-6, 1e-5` for every second checkpoint
-  - Compare with the baseline model of no unlearning (at step 100,000): https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step100000-tokens210B 
-  - Compare with the unlearning baseline (where we keep training the model for 10k steps on remaing data). These models can be found here: 
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/step110000-unsharded 
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step102000 (Hugging Face Checkpoint)
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step104000 (Hugging Face Checkpoint)
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step106000 (Hugging Face Checkpoint)
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step108000 (Hugging Face Checkpoint)
-    - https://huggingface.co/sbordt/OLMo-2-179M-Exp-Unlearning/tree/stage1-step110000-tokens231B (Hugging Face Checkpoint)
-   - Compare with the ground-truth "deep ignorance" baseline. These models can be found here: 
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/stage1-step100000-tokens210B
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/stage1-step102000
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/stage1-step104000
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/stage1-step106000
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/stage1-step108000
-     - https://huggingface.co/sbordt/OLMo-2-179M-Unlearning/tree/step110000-unsharded 
-- Unlearning Eval 2: now i want to utilize the train-once-answer-all eval suite. Whenever possible, I want to measure both the discrete outcome as well as the cross entropy loss of the event. Again, plesae save the result by individual samples, and evalaute these models' abilitiy to do the following.
-  - mathematical reasoning (mathematical_reasoning.py)
-  - denial-of-service attack (from denial_of_service.py)
-  - prompt extraction (from prompt_extraction.py)
-  - benchmark contamination (from benchmark.py)
-- Unlearning Eval 3: fictional_knowledge, verbatim_memorization, insertion_likelihood, Gaussian Watermark, Memorization Patterns
+### HuggingFace model zoo
+
+All models live under the `sbordt` HF org
+(`https://huggingface.co/<repo>/tree/<branch>`), four sizes
+(`179M`, `546M`, `1B`, `2.7B`). `-Exp` repos **saw** the injected
+canaries/watermarks during training; the corresponding plain repos are the
+ground-truth **deep-ignorance** counterparts trained without them.
+Base reference models: `sbordt/OLMo-2-{SIZE}` (clean) and
+`sbordt/OLMo-2-{SIZE}-Exp` (with canaries).
+
+**Stage 1 families** (canaries inserted during pretraining; unlearning window
+= steps 100k–110k, branch naming `stage1-step<N>[-tokens<T>B]`, plus
+OLMo-format `step<N>-unsharded` branches for local use):
+
+`sbordt/OLMo-2-{SIZE}-Exp-Unlearning` — baseline (step 100k) +
+unlearning-baseline (continued training on the remaining data):
+
+| Size | Branches |
+|---|---|
+| 179M | `stage1-step100000-tokens210B`, `stage1-step{102,104,106,108}000`, `stage1-step110000-tokens231B`, `step110000-unsharded` |
+| 546M | same grid as 179M |
+| 1B | `stage1-step100000-tokens210B`, per-1k `stage1-step10{1..9}000`, `stage1-step110000-tokens231B`, every-10k `stage1-step1{2,3,4,5}0000-tokens{252,273,294,315}B`, `step1{1,2,3,4,5}0000-unsharded` |
+| 2.7B | as 1B, plus `step100000-unsharded` |
+
+`sbordt/OLMo-2-{SIZE}-Unlearning` — deep-ignorance ground truth:
+
+| Size | Branches |
+|---|---|
+| 179M | `stage1-step100000-tokens210B`, `stage1-step{102,104,106,108}000`, `step110000-unsharded` |
+| 546M | `stage1-step100000-tokens210B`, `stage1-step{102,104,106,108}000`, `stage1-step110000-tokens231B`, `step110000-unsharded` |
+| 1B | `stage1-step100000-tokens210B`, per-1k `stage1-step10{1..9}000`, `stage1-step110000-tokens231B`, every-10k `stage1-step1{2,3,4,5}0000-tokens{252,273,294,315}B` |
+| 2.7B | `stage1-step100000-tokens210B`, per-1k `stage1-step10{1..9}000`, `stage1-step110000-tokens231B`, `step{100,110}000-unsharded` — **nothing past 110k** |
+
+Availability caveats: within 100k–110k, comparisons run at the per-1k grid on
+1B/2.7B and the per-2k grid on 179M/546M. Past step 110000, Exp-Unlearning
+extends to 150k on 1B/2.7B but only 1B has the matching deep-ignorance
+branches; 2.7B deep-ignorance stops at 110k.
+
+**Mid-training (stage2) families** (canaries inserted during a mid-training
+run instead of stage1; the earliest stage2 step is the baseline analog —
+there is no separate `baseline` family):
+
+- `sbordt/OLMo-2-{SIZE}-Exp-Mid` — saw the canaries during mid-training
+  (analog of the stage1 unlearning-baseline)
+- `sbordt/OLMo-2-{SIZE}-Mid` — deep-ignorance, never saw the canaries
+
+Verified present for all four sizes. Identical branch grid per repo:
+`stage2-step1000` … `stage2-step11000` (every 1000 steps, 11 checkpoints) plus
+`main` (holds a real `model.safetensors`, not just a pointer). Architectures
+match the corresponding stage1 size exactly, so the per-size noise-vector
+embed dims line up.
+
+### Evaluation data locations
+
+- **Gaussian-watermark noise vectors** — per-size HF parquet datasets:
+  - 179M: `sbordt/OLMo-2-179M-Exp-NoiseVectors`
+  - 546M: `sbordt/OLMo-2-546M-Exp-NoiseVectors`
+  - 1B: `sbordt/OLMo-2-1B-Exp-NoiseVectors`
+  - 2.7B: `sbordt/OLMo-2-2.7B-Exp-NoiseVectors` (embed_dim 2880, matching the
+    2.7B arch: `hidden_size=2880, intermediate_size=11520, 16 layers, 16 heads`)
+
+  `mia-data/build_noise_dir.py` converts parquet → the
+  `gaussian_poisoning_seeds_and_sequences_sampled_<chunk>.pkl` layout the eval
+  expects (one file per `batch_idx // 1000` chunk; `chunk_size`/dtype
+  configurable) on first run; cached at
+  `~/pretrain-experiments/noise-vectors/OLMo-2-{SIZE}-Exp/`. Override with
+  `NOISE_DIR=/path/to/dir`.
+
+  **No `-Mid`-specific NoiseVectors dataset is published** (`…-Exp-Mid-NoiseVectors`
+  404s). The GW eval for mid models reuses the stage1 set — the same watermark
+  sequences were injected during mid-training, and GW detection does not filter
+  noise files by training step, so the stage2 step range (1k–11k) is irrelevant.
+  Validated by the eval itself: clear signal on `-Exp-Mid`, null on `-Mid`.
+
+- **MIA (paired benchmark)** — `sbordt/TOAA-Membership-Inference` (paired
+  members/non-members), evaluated with `--reference_model auto` (resolves to
+  `sbordt/OLMo-2-{SIZE}` by parameter count). Used identically for stage1 and
+  mid models.
+
+- **MIA (legacy memorization-patterns holdout)** — used by the eval3 sweep's
+  `newtoken_mia.py` step: `mia-data/memorization-patterns-holdout.pkl`, built
+  from `mia-data/memorization-patterns-holdout.jsonl` (34907 holdout token-id
+  sequences, a single bucket replicated across all 30 `memorization-patterns-*`
+  mapped keys) by `mia-data/build_holdout_pkl.py`. Override via
+  `MIA_DATA_OUT_PKL=...`; subset with `MIA_EXPERIMENTS="..."`.
+
+- **Insertion likelihood / canary experiments** — `sbordt/OLMo-2-1B-Exp-Dataset`
+  (also the source of the forget set, see above).
+
+- **c4 validation holdout** — `resources/validation-set/c4_en_validation.jsonl`
+  (2500 samples; fetched by `internal/uwiki/download_c4_validation.sh`).
+
+### Evaluation suites → drivers → outputs
+
+All drivers live in `internal/uwiki/` (non-eval scripts were moved to
+`internal/uwiki/archive/`; SLURM logs for completed eval runs are collected in
+`slurm-logs/evals/`).
+
+| Suite | Driver(s) | Output |
+|---|---|---|
+| c4 validation loss (general capability) | `eval_gn_c4val_sweep.sh` | `evals/gn-c4val-sweep/<label>/` |
+| Eval3: Gaussian watermark + fictional_knowledge + verbatim_memorization (+ optional insertion_likelihood via `SKIP_IL=0`, memorization-patterns MIA) | `eval_gn_eval3_sweep.sh` (179M/546M case-block); 1B via `eval_gn_eval3_1B_{baseline,unlearning_baseline,deep_ignorance,gn3p5e6}.sh`; 2.7B GW-only via `eval_gn_eval3_2.7B_gw.sh`; mid models via `eval_gn_eval3_mid_gw.sh` | `evals/gn-eval3-sweep/<SIZE>[-Mid]/<label>/step-<N>/` |
+| Insertion likelihood | `eval_gn_insertion_likelihood.sh` (179M), `…_546M.sh`, `…_1B.sh`, `eval_gn_il_oneshot.sh` | `evals/gn-insertion-likelihood{,-546M,-1B}/<label>/` |
+| General capabilities (6 TOAA tasks × standard+mid suites × all sizes) | `eval_toaa_capabilities.sh` | `evals/toaa-capabilities/<SIZE>[-Mid]/` |
+| MIA (paired benchmark, `newtoken_mia.py`) | `run_toaa_mia_newdataset_{179M_3models,179M_deepignorance,179M_gn_unlearnbaseline,546M,1B,2.7B,mid}.sh` | `evals/toaa-mia-newdataset/<SIZE>[-Mid]/` |
 
 Notes:
-- Once the right noise range is identified on 179M, validate on larger models
-- Hardware (training): galadriel (`p_datamining`), 2× H100. Early attempts ran on 1× H100 and timed out at the 24h budget — settled on 2× H100. Each sweep still needed multiple jobs (sweep + resume) to reach step 110000. Cumulative wallclock across all substantive attempts: 1e-7 ≈ 1d 22h 23m (2 jobs); 1e-6 ≈ 2d 18h 21m (5 jobs); 1e-5 ≈ 2d 19h 06m (4 jobs).
-
-**Experiment 2: Scale-up validation at 546M**
-
-Same setup as Experiment 1 but on `OLMo-2-546M-Exp-Unlearning`, continuing from `step100000-unsharded`. Per the scaling analysis (σ ∝ 1/√N), the 546M analog of 179M @ 1e-5 is around `5e-6`; 1e-7 is deep in the no-effect regime. Config template: `config/unlearning-gradient-noise-546M.yaml`.
-
-Sweeps:
-- `1e-7` (run `dp69aj1f`): complete (steps 101000–110000, checkpoints on disk under `unlearning-gradient-noise/OLMo-2-546M-Exp-gradient-noise-dp69aj1f/`)
-- `5e-6` (run `ioza65lg`, slurm job 534395): completed 2026-04-25 on 4× H100 (galadriel)
-- `7.5e-6` (slurm job 534699): completed 2026-04-27 on 4× H100 (dgx-h100-em2)
-- `1e-6` (run `op80ibt5`): aborted after step 101000-tmp
-
-Hardware (training): 4× H100 (galadriel for `dp69aj1f`/`ioza65lg`, dgx-h100-em2 for `7.5e-6`). Earlier 2× H100 attempts at 546M did not finish within the 24h slot. Cumulative wallclock per sweep: 1e-7 ≈ 4d 23h 54m (across 4 substantive attempts; multiple cancelled/timeout before 533816 completed in 1d 01h 45m); 5e-6 ≈ 1d 22h 21m (single job 534395); 7.5e-6 ≈ 1d 17h 02m (single job 534699).
-
-References on HF (mirror the 179M URL pattern):
-- baseline (no unlearning, step 100000): https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step100000-tokens210B
-- unlearning baseline (continued training on remaining data):
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step102000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step104000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step106000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step108000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/stage1-step110000-tokens231B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-546M-Exp-Unlearning/tree/step110000-unsharded
-- ground-truth "deep ignorance":
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step100000-tokens210B
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step102000
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step104000
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step106000
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step108000
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/stage1-step110000-tokens231B
-  - https://huggingface.co/sbordt/OLMo-2-546M-Unlearning/tree/step110000-unsharded
-
-**Experiment 3: Scale-up validation at 1B**
-
-Same setup as Experiments 1/2 but on `OLMo-2-1B-Exp-Unlearning`, continuing from `step100000-unsharded`. Model config: `OLMo/configs/official-0425/OLMo2-1B-stage1.yaml` (d_model=2048, n_layers=16, n_heads=16). Per the scaling analysis (σ ∝ 1/√N, anchored at 179M @ 1e-5), the 1B analog is around `4e-6` (~3.5e-6 if using actual non-embedding+embedding count ~1.48B). No `config/unlearning-gradient-noise-1B.yaml` template exists yet.
-
-Notes specific to 1B:
-- Training horizon extends to step 150000 / 315B tokens (vs. 110000 / 231B on 179M and 546M).
-- Hardware (training): galadriel, 4× H100. The `3.5e-6` sweep (run `9050f9m3`, slurm job 534697) trained steps 100000 → 110000 in **2d 10h 42m** (2026-04-25 19:05:56 → 2026-04-28 05:47:47), single job, no resume. Pace ~5h 49m per 1k steps in steady state; first 1k included ~20m startup overhead.
-- Deep-ignorance ground-truth at 1B now ships per-1k checkpoints across the unlearning window (`stage1-step101000`–`stage1-step109000` in addition to the every-10k `stage1-step1{0,1,2,3,4,5}0000-tokens*` branches) — these mirror the per-1k Exp-Unlearning grid 1:1 over 101k–110k. The remaining per-1k branches (111k–119k, 121k–129k, …) and the `step{110,120,130,140,150}000-unsharded` branches that exist on the Exp-Unlearning side are still NOT available on the deep-ignorance repo. Comparisons within 100k–110k can run at the per-1k grid; comparisons past step 110000 are still restricted to the every-10k grid.
-
-References on HF (mirror the 179M/546M URL pattern):
-- baseline (no unlearning, step 100000): https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step100000-tokens210B
-- unlearning baseline (continued training on remaining data):
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step101000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step102000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step103000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step104000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step105000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step106000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step107000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step108000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step109000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step110000-tokens231B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step120000-tokens252B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step130000-tokens273B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step140000-tokens294B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/stage1-step150000-tokens315B (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/step110000-unsharded
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/step120000-unsharded
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/step130000-unsharded
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/step140000-unsharded
-  - https://huggingface.co/sbordt/OLMo-2-1B-Exp-Unlearning/tree/step150000-unsharded
-- ground-truth "deep ignorance" (per-1k across 100k–110k; every-10k thereafter):
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step100000-tokens210B
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step101000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step102000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step103000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step104000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step105000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step106000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step107000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step108000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step109000 (Hugging Face Checkpoint)
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step110000-tokens231B
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step120000-tokens252B
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step130000-tokens273B
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step140000-tokens294B
-  - https://huggingface.co/sbordt/OLMo-2-1B-Unlearning/tree/stage1-step150000-tokens315B
-
-**Other Gaussian noise variants:**
-- Relative noise scaling: scale noise proportional to gradient magnitude (`noise * |grad|`) instead of fixed std, to keep perturbation proportional across layers
-- Per-layer noise: different noise levels for embeddings, attention, FFN layers (gradients vary by orders of magnitude across layers)
-- Noise scheduling: start with larger noise and decay, or ramp up over training
-
-**Alternative unlearning approaches:**
-- Gradient ascent on target data (maximize loss on data to forget)
-- Fine-tuning on retain set only (catastrophic forgetting of unlearning targets)
-- Task arithmetic: negate the task vector for the capability to remove
-- Selective weight perturbation: only add noise to parameters most associated with the target knowledge (e.g., via Fisher information)
-
-**Evaluation and diagnostics:**
-- Track per-step gradient norms alongside noise magnitude to understand effective signal-to-noise ratio
-- Measure unlearning vs. general degradation tradeoff curves across noise levels
-- Compare unlearning durability: does the model re-learn after further clean training?
+- The 2.7B GW driver is array-indexed (12 targets = baseline +
+  unlearning-baseline×5 + deep-ignorance×6); warm the noise dir with idx 0,
+  then fan out `--array=1-11 --dependency=afterok`. 2.7B checkpoints are all
+  pulled as HF revisions — no unsharded→HF conversion needed.
+- The MIA eval for standard checkpoints uses `newtoken_mia.py`
+  (`pretrain_experiments/evaluation/train-once-answer-all/`); the old vLLM
+  variant (`newtoken_mia_vllm.py`) has been removed.
+- The TOAA denial-of-service eval requires access to the gated
+  `Llama-3-8B-Instruct` judge and has not been run yet.
+- Mid-model eval outputs are namespaced under `<SIZE>-Mid/` to avoid colliding
+  with the stage1 `<SIZE>/` trees.

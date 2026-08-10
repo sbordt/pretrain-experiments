@@ -68,12 +68,14 @@ export PYTHONPATH="$PWD:$HOME/.local/lib/python3.12/site-packages${PYTHONPATH:+:
 python -c "import torch, transformers, datasets, pretrain_experiments; print('torch', torch.__version__)" \
   || { echo "ERROR: torch / pretrain_experiments not importable on $(hostname)" >&2; exit 1; }
 
+set -e
 set -u
 set -o pipefail
 
 MODEL=sbordt/OLMo-2-179M-Exp-Unlearning
 REVISION=stage1-step100000-tokens210B
-OUTPUT_DIR="$HOME/pretrain-experiments/unlearning-gradient-ascent/${RUN_TAG}/lr${LR}-b${BATCH}"
+EFFECTIVE_BATCH=$((BATCH * GA_ACCUM))
+OUTPUT_DIR="$HOME/pretrain-experiments/unlearning-gradient-ascent/${RUN_TAG}/lr${LR}-b${EFFECTIVE_BATCH}"
 
 EXTRA_ARGS=()
 if [ "$GA_GRAD_CKPT" = "1" ]; then
@@ -105,6 +107,6 @@ python -m pretrain_experiments.gradient_ascent \
 
 echo ""
 echo "============================================"
-echo "  GA cell DONE: lr=$LR batch=$BATCH"
+echo "  GA cell DONE: lr=$LR effective_batch=$EFFECTIVE_BATCH (micro=$BATCH accum=$GA_ACCUM)"
 echo "  checkpoints under: $OUTPUT_DIR"
 echo "============================================"

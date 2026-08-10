@@ -97,6 +97,76 @@ INFERENCE_MAX_NUM_SEQS=128 sbatch ... --model sbordt/OLMo-2-179M-Exp
 | `OLMo-2-1B-Exp` | Galvani | | |
 | `OLMo-2-2.7B-Exp` | Ferranti | | |
 
+## Unlearning Eval 3 (gn-eval3-sweep)
+
+Memorization / watermark audit on the gradient-noise unlearning sweep
+checkpoints. Driver: `internal/uwiki/eval_gn_eval3_sweep.sh`. Output root:
+`evals/gn-eval3-sweep/<label>/step-<N>/`.
+
+Per checkpoint, runs (subject to availability of inputs):
+
+- `fictional_knowledge.py` — default args; writes `fictional_knowledge.{yaml,jsonl}`.
+- `verbatim_memorization.py` — default args (uses `forbidden_documents.jsonl`);
+  writes `verbatim_memorization.{yaml,jsonl}`.
+- `insertion_likelihood.py` — **skipped by default** (`SKIP_IL=1`) because the
+  sweep is already covered by `eval_gn_insertion_likelihood.sh` →
+  `evals/gn-insertion-likelihood/`. Set `SKIP_IL=0` to rerun in this sweep.
+- `gaussian_watermark.py` — runs by default. The eval expects a directory of
+  `gaussian_poisoning_seeds_and_sequences_sampled_<chunk>.pkl` files, but the
+  noise vectors live as HF parquet datasets:
+    - `sbordt/OLMo-2-179M-Exp-NoiseVectors`
+    - `sbordt/OLMo-2-546M-Exp-NoiseVectors`
+
+  `mia-data/build_noise_dir.py` converts parquet → the per-chunk pkl layout on
+  first run; output is cached at
+  `~/pretrain-experiments/noise-vectors/OLMo-2-{MODEL}-Exp/` (one pkl per
+  `batch_idx // 1000` chunk = ~100 files for 100k training steps; bfloat16
+  noise dtype to halve disk size, cast to fp32 inside the eval). Override
+  with `NOISE_DIR=...`. Per-checkpoint outputs land at
+  `<step-dir>/gaussian_watermark/gaussian_privacy_scores_{in,out}_*.pt`.
+- `newtoken_mia.py` (Memorization Patterns MIA) — runs by default against
+  `mia-data/memorization-patterns-holdout.pkl`, built from the on-disk
+  `memorization-patterns-holdout.jsonl` (34907 sequences) via
+  `mia-data/build_holdout_pkl.py`. The holdout is a single bucket (not
+  per-variant), so the same pool is replicated across all 30
+  `memorization-patterns-*` mapped keys; downstream the script slices to
+  `len(in_data)` per experiment. Override the pool path with
+  `MIA_DATA_OUT_PKL=...`; subset variants with
+  `MIA_EXPERIMENTS="memorization-patterns-rare-1-token-1x ..."`.
+
+### Checkpoint grid
+
+Mirrors Eval 1 (`eval_gn_c4val_sweep.sh`):
+
+- baseline (local `step100000-unsharded`)
+- unlearning-baseline @ {102, 104, 106, 108}k (HF-direct
+  `sbordt/OLMo-2-179M-Exp-Unlearning@stage1-step{s}`) + 110k (unsharded
+  `step110000-unsharded` → convert)
+- 1e-7 / 1e-6 / 1e-5 sweeps @ {102, 104, 106, 108, 110}k (local
+  `unlearning-gradient-noise/...-179M-Exp-gradient-noise-{uij1rwaw,h5p8rdiz,flvann74}`)
+- deep-ignorance @ {100, 110}k (unsharded → convert) + {102, 104, 106, 108}k
+  (HF-direct `sbordt/OLMo-2-179M-Unlearning@stage1-step{s}`)
+
+`PILOT=1` restricts to baseline + 1e-5@110k for smoke-testing.
+
+### Submission
+
+```bash
+# Always-on evals only (fictional_knowledge + verbatim_memorization)
+sbatch internal/uwiki/eval_gn_eval3_sweep.sh
+
+# Pilot smoke test
+PILOT=1 sbatch internal/uwiki/eval_gn_eval3_sweep.sh
+
+# With Gaussian watermark + MIA
+NOISE_DIR=/weka/.../gaussian_poisoning \
+MIA_DATA_OUT_PKL=$HOME/pretrain-experiments/mia-data/memorization-patterns-holdout.pkl \
+sbatch internal/uwiki/eval_gn_eval3_sweep.sh
+```
+
+`MODEL=179M` only is wired today; extend the `case "$MODEL"` block to
+add 546M / 1B run-dir mappings.
+
 ## Gradient Ascent Unlearning Sweep
 
 Post-hoc unlearning method (Jang et al., ACL 2023 — *Knowledge Unlearning for
